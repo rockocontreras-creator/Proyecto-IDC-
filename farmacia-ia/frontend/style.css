@@ -1,0 +1,177 @@
+:root {
+    --primary: #2563eb; /* Azul moderno */
+    --secondary: #64748b;
+    --success: #16a34a;
+    --danger: #dc2626;
+    --bg-main: #f1f5f9;
+    --bg-sidebar: #ffffff;
+    --bg-chat: #f8fafc;
+    --text-main: #1e293b;
+    --white: #ffffff;
+    --sidebar-width: 260px;
+    --input-area-height: 80px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+
+body { background-color: var(--bg-main); color: var(--text-main); height: 100vh; overflow: hidden; }
+
+/* Estructura Principal Grid */
+.app-container {
+    display: grid;
+    grid-template-columns: var(--sidebar-width) 1fr;
+    grid-template-rows: 1fr var(--input-area-height);
+    height: 100vh;
+}
+
+/* --- 1. SIDEBAR IZQUIERDA --- */
+.sidebar {
+    grid-row: 1 / -1; /* Ocupa todo el alto */
+    background-color: var(--bg-sidebar);
+    border-right: 1px solid #e2e8f0;
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+    z-index: 10;
+}
+
+.logo { font-size: 1.5rem; font-weight: 800; color: var(--primary); text-align: center; margin-bottom: 40px; }
+
+.info-nav { display: flex; flex-direction: column; gap: 10px; flex: 1; }
+
+.nav-btn {
+    background: none;
+    color: var(--text-main);
+    text-align: left;
+    padding: 12px 15px;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 500;
+    justify-content: flex-start;
+}
+
+.nav-btn:hover { background-color: #f1f5f9; color: var(--primary); }
+
+.nav-btn.active { background-color: #e0f2fe; color: var(--primary); font-weight: 600; }
+
+.sidebar-footer { text-align: center; color: var(--secondary); border-top: 1px solid #eee; padding-top: 10px; }
+
+/* --- 2. CONTENIDO PRINCIPAL (Centrado) --- */
+.main-content {
+    grid-column: 2;
+    grid-row: 1;
+    overflow-y: auto;
+    display: flex;
+    justify-content: center; /* Centrado horizontal */
+    padding: 20px;
+    padding-bottom: 0; /* Espacio para la barra de entrada */
+}
+
+.content-section {
+    width: 100%;
+    max-width: 800px; /* Ancho máximo para mantener lectura central */
+    display: none; /* Ocultas por defecto */
+}
+
+.active-section { display: block; }
+
+/* Estilos de Tarjetas (para secciones no-chat) */
+.panel-card {
+    background: var(--white);
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.panel-card h3 { margin-bottom: 20px; color: var(--primary); }
+
+.chart-panel { height: 70vh; display: flex; flex-direction: column; }
+.chart-wrapper { flex: 1; min-height: 0; }
+
+/* --- 3. ÁREA DE CHAT (Centrada y Expandible) --- */
+.chat-container {
+    height: 100%;
+    display: flex;
+    justify-content: center;
+}
+
+.chat-window {
+    width: 100%;
+    max-width: 800px; /* Centrado */
+    background: var(--white);
+    border-radius: 12px 12px 0 0;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    display: flex;
+    flex-direction: column;
+    padding: 30px;
+    overflow-y: auto;
+    transition: all 0.5s ease; /* Animación para expansión */
+}
+
+/* Efecto de expansión: Ocupa todo el ancho si está expandido */
+.chat-window.expanded {
+    max-width: 100%;
+    border-radius: 0;
+}
+
+.message {
+    padding: 15px 20px;
+    border-radius: 12px;
+    max-width: 80%;
+    line-height: 1.5;
+    margin-bottom: 20px;
+}
+
+.bot { background: var(--bg-chat); align-self: flex-start; color: #1e293b; }
+.user { background: var(--primary); color: white; align-self: flex-end; margin-left: auto;}
+
+/* --- 4. BARRA DE ENTRADA (Fija y Centrada) --- */
+.input-footer {
+    grid-column: 2;
+    grid-row: 2;
+    background: var(--white);
+    border-top: 1px solid #e2e8f0;
+    display: flex;
+    justify-content: center; /* Centra horizontalmente */
+    align-items: center;
+    padding: 0 20px;
+    z-index: 5;
+}
+
+.input-area-centered {
+    width: 100%;
+    max-width: 800px; /* Mismo ancho que el chat */
+    display: flex;
+    gap: 10px;
+    position: relative;
+    top: -15px; /* Sube la barra ligeramente sobre el chat */
+}
+
+#user-input {
+    flex: 1;
+    padding: 16px;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    font-size: 1rem;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+#user-input:focus { border-color: var(--primary); }
+
+#send-btn {
+    padding: 0 30px;
+    background-color: var(--success);
+    color: white;
+    font-size: 1rem;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+#send-btn:hover { background-color: #15803d; }
+
+/* --- Elementos de relleno (Placeholder) --- */
+.results-list { margin-top: 15px; }
+.price-item { background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid var(--primary); }
+.map-box { height: 300px; background: #e2e8f0; border: 2px dashed #94a3b8; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #64748b; border-radius: 8px; }
