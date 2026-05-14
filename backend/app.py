@@ -37,6 +37,9 @@ def get_driver():
     opts = Options()
     opts.add_argument("--headless")
     opts.add_argument("--blink-settings=imagesEnabled=false")
+    # Argumentos vitales para que Chrome funcione en servidores Linux/Render
+    opts.add_argument("--no-sandbox")
+    opts.add_argument("--disable-dev-shm-usage")
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=opts)
 
 def scrape_task(func, remedio, res_list):
@@ -66,6 +69,15 @@ def logic_salcobrand(remedio, driver, res):
     WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, ".product-info")))
     d = driver.execute_script("let p=document.querySelector('.product-info'); let c=p.closest('.product'); return {n:p.innerText.split('\\n')[0], pr:c.querySelector('.price').innerText, l:c.querySelector('a').href};")
     if d: res.append({"farmacia": "Salcobrand", "nombre": d['n'], "precio": d['pr'], "link": d['l'], "color": "#ffd400"})
+
+# Ruta principal para validar que el servidor funciona en la URL base
+@app.route('/', methods=['GET'])
+def home():
+    return jsonify({
+        "estado": "Activo",
+        "proyecto": "FarmaConnect",
+        "mensaje": "La API está en línea y funcionando."
+    })
 
 @app.route('/scraping_manual', methods=['POST'])
 def scraping_manual():
@@ -102,4 +114,5 @@ def obtener_historial():
     return jsonify(data)
 
 if __name__ == '__main__':
-    app.run(debug=True, port=8000)
+    # host='0.0.0.0' permite que Render exponga tu proyecto al exterior
+    app.run(host='0.0.0.0', port=8000)
