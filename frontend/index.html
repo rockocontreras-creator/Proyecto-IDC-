@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>PharmaAI Pro</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <h2 style="color:var(--primary); margin-bottom:30px;">PharmaAI</h2>
+            <nav>
+                <button class="nav-btn active" onclick="showSection('search', this)">
+                    <i data-lucide="search"></i> Comparador
+                </button>
+                <button class="nav-btn" onclick="showSection('chat', this)">
+                    <i data-lucide="message-circle"></i> Mathew IA
+                </button>
+                <button class="nav-btn" onclick="showSection('history', this); cargarHistorial();">
+                    <i data-lucide="history"></i> Historial
+                </button>
+                <button class="nav-btn" onclick="showSection('map', this)">
+                    <i data-lucide="map-pin"></i> Mapa Salud
+                </button>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <div style="display: flex; justify-content: flex-end; margin-bottom: 20px;">
+                <button id="theme-toggle" style="background:var(--card-bg); border:1px solid var(--border); padding:10px; border-radius:50%; cursor:pointer; color:var(--text-main);">
+                    <i data-lucide="moon" id="theme-icon"></i>
+                </button>
+            </div>
+
+            <div id="search-section" class="content-section active-section">
+                <div class="panel-card">
+                    <h2>Comparador de Precios</h2>
+                    <div style="display:flex; gap:10px; margin-top:20px; background:var(--bg-main); padding:10px; border-radius:12px;">
+                        <input type="text" id="manual-search" placeholder="Ej: Tapsin" style="flex:1; background:transparent; border:none; color:var(--text-main); outline:none;">
+                        <button class="btn-primary" onclick="startScraping()">Comparar</button>
+                    </div>
+                    <div id="scraping-results"></div>
+                </div>
+            </div>
+
+            <div id="chat-section" class="content-section">
+                <div class="panel-card">
+                    <h2>Asistente Mathew</h2>
+                    <div id="chat-box" style="margin-top:20px;"></div>
+                    <div style="display:flex; gap:10px; margin-top:15px;">
+                        <input type="text" id="chat-input" placeholder="Pregunta sobre salud..." style="flex:1; padding:12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-main); color:var(--text-main);">
+                        <button class="btn-primary" onclick="enviarMensaje()">Consultar</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="map-section" class="content-section">
+                <div class="panel-card">
+                    <h2>Mapa de Salud</h2>
+                    <div style="display:flex; gap:10px; margin-bottom:15px; margin-top:15px;">
+                        <button class="btn-primary" style="flex:1" onclick="actualizarMapa('hospitales')">Clínicas</button>
+                        <button class="btn-primary" style="flex:1; background:#64748b" onclick="actualizarMapa('farmacias')">Farmacias</button>
+                    </div>
+                    <iframe id="map-iframe" width="100%" height="500" frameborder="0" src="about:blank"></iframe>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
