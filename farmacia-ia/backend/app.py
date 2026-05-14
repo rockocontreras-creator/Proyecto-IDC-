@@ -11,30 +11,36 @@ import threading
 import sqlite3
 import os
 
-# IMPORTANTE: Instalación de la nueva librería: pip install openai
+# Usamos el cliente de OpenAI pero apuntando a Groq para que sea GRATIS
 from openai import OpenAI 
 
 app = Flask(__name__)
 CORS(app)
 
-# CONFIGURACIÓN IA (Reemplaza con tu clave real)
-client = OpenAI(api_key="")
+# CONFIGURACIÓN IA GRATUITA (GROQ)
+# 1. Ve a https://console.groq.com/keys y crea una API Key gratuita.
+# 2. Pégala aquí abajo.
+client = OpenAI(
+    base_url="https://api.groq.com/openai/v1",
+    api_key="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"
+)
 
-# --- BASE DE DATOS (Estructura 3FN para FarmaConnect) ---
+# --- BASE DE DATOS (Arquitectura 3FN - Capítulo II) ---
 def init_db():
     conn = sqlite3.connect('farmacia.db')
     cursor = conn.cursor()
-    # Tabla de Farmacias (Entidad Independiente)
+    # Tabla Farmacias [cite: 168, 469, 815]
     cursor.execute('CREATE TABLE IF NOT EXISTS farmacias (id INTEGER PRIMARY KEY, nombre TEXT UNIQUE, color TEXT)')
-    # Tabla de Medicamentos (Entidad Independiente)
+    # Tabla Medicamentos [cite: 171, 471, 836]
     cursor.execute('CREATE TABLE IF NOT EXISTS medicamentos (id INTEGER PRIMARY KEY, nombre_buscado TEXT UNIQUE, requiere_receta INTEGER DEFAULT 0)')
-    # Tabla de Historial (Relación con integridad referencial)
+    # Tabla Historial Relacional [cite: 172, 473, 814]
     cursor.execute('''CREATE TABLE IF NOT EXISTS historial 
                       (id INTEGER PRIMARY KEY AUTOINCREMENT, farmacia_id INTEGER, medicamento_id INTEGER, 
                        nombre_producto TEXT, precio INTEGER, fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP, link TEXT,
                        FOREIGN KEY(farmacia_id) REFERENCES farmacias(id),
                        FOREIGN KEY(medicamento_id) REFERENCES medicamentos(id))''')
     
+    # Datos maestros para 3FN [cite: 424, 432]
     farmacias_data = [(1, 'Ahumada', '#003399'), (2, 'Dr. Simi', '#ce000c'), (3, 'Salcobrand', '#ffd400')]
     cursor.executemany("INSERT OR IGNORE INTO farmacias VALUES (?,?,?)", farmacias_data)
     conn.commit()
@@ -53,7 +59,6 @@ def guardar_busqueda(remedio, resultados):
         cursor.execute("SELECT id FROM farmacias WHERE nombre = ?", (r['farmacia'],))
         f_id = cursor.fetchone()[0]
         try:
-            # Limpieza de precio para guardar como entero
             precio_int = int(''.join(filter(str.isdigit, str(r['precio']))))
             cursor.execute('''INSERT INTO historial (farmacia_id, medicamento_id, nombre_producto, precio, link) 
                               VALUES (?,?,?,?,?)''', (f_id, med_id, r['nombre'], precio_int, r['link']))
@@ -61,23 +66,24 @@ def guardar_busqueda(remedio, resultados):
     conn.commit()
     conn.close()
 
-# --- MOTOR DE SCRAPING ---
+# --- MOTOR DE SCRAPING MULTIHILO (Sección 6.5) ---
 def get_driver():
     opts = Options()
-    opts.add_argument("--headless") # Ejecución en segundo plano
-    opts.add_argument("--no-sandbox")
-    opts.add_argument("--disable-dev-shm-usage")
-    opts.add_argument("--blink-settings=imagesEnabled=false") # Ahorra ancho de banda
+    opts.add_argument("--headless") # Modo sin cabeza para optimizar RAM [cite: 33, 156, 162]
+    opts.add_argument("--blink-settings=imagesEnabled=false")
     opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=opts)
 
 def scrape_task(func, remedio, res_list):
     driver = get_driver()
-    try: func(remedio, driver, res_list)
-    except Exception as e: print(f"Error en hilo: {e}")
-    finally: driver.quit()
+    try: 
+        func(remedio, driver, res_list)
+    except Exception as e: 
+        print(f"Error en hilo de farmacia: {e}")
+    finally: 
+        driver.quit() # Libera recursos para evitar Memory Leaks [cite: 360]
 
-# Lógicas de farmacias
+# Funciones de lógica específica por farmacia [cite: 484, 562, 570]
 def logic_ahumada(remedio, driver, res):
     driver.get(f"https://www.farmaciasahumada.cl/search?q={remedio}&srule=price-low-to-high&sz=1")
     WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CLASS_NAME, "price")))
@@ -101,21 +107,18 @@ def logic_salcobrand(remedio, driver, res):
     if d: res.append({"farmacia": "Salcobrand", "nombre": d['n'], "precio": d['pr'], "link": d['l'], "color": "#ffd400"})
 
 # --- RUTAS DE LA API ---
-
 @app.route('/scraping_manual', methods=['POST'])
 def scraping_manual():
     remedio = request.json.get('remedio', '')
-    if not remedio: return jsonify({"error": "No se envió un término de búsqueda"}), 400
-    
     res = []
+    # Implementación de Multithreading [cite: 34, 176, 258, 338, 750]
     threads = [
         threading.Thread(target=scrape_task, args=(logic_ahumada, remedio, res)),
         threading.Thread(target=scrape_task, args=(logic_drsimi, remedio, res)),
         threading.Thread(target=scrape_task, args=(logic_salcobrand, remedio, res))
     ]
-    
     for t in threads: t.start()
-    for t in threads: t.join()
+    for t in threads: t.join() # Sincronización de hilos [cite: 179, 353]
     
     if res: guardar_busqueda(remedio, res)
     return jsonify({"precios": res})
@@ -138,20 +141,19 @@ def consultar_asistente():
     contexto = data.get('contexto_precios')
 
     try:
-        # Llamada actualizada para OpenAI v1.0+
+        # Usamos un modelo gratuito de Groq (Llama 3)
         completion = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="llama-3.1-8b-instant",
             messages=[
-                {"role": "system", "content": "Eres Mathew, un asistente farmacéutico experto. Analiza precios y sugiere opciones basadas en los datos proporcionados. Sé breve y profesional. SIEMPRE advierte: 'Consulta a tu médico antes de comprar'."},
-                {"role": "user", "content": f"Contexto de precios actuales encontrados por el sistema: {contexto}. Pregunta del usuario: {pregunta}"}
+                {"role": "system", "content": "Eres Mathew, un asistente farmacéutico experto de FarmaConnect. Analiza precios y sugiere opciones. Sé breve y profesional. SIEMPRE advierte: 'Consulta a tu médico antes de comprar'."},
+                {"role": "user", "content": f"Contexto de precios actuales: {contexto}. Pregunta: {pregunta}"}
             ]
         )
-        respuesta_texto = completion.choices[0].message.content
-        return jsonify({"respuesta": respuesta_texto})
+        return jsonify({"respuesta": completion.choices[0].message.content})
     except Exception as e:
-        print(f"Error en OpenAI: {e}")
-        return jsonify({"respuesta": "Lo siento, tuve un problema al conectar con el servicio de IA. Verifica tu API Key o conexión."}), 500
+        print(f"ERROR IA (GROQ): {e}")
+        return jsonify({"respuesta": "Error de comunicación con el asistente gratuito. Revisa tu clave de Groq."}), 500
 
 if __name__ == '__main__':
-    # Usamos el puerto 8000 como solicitaste por tus problemas de red
+    # Puerto 8000 para evitar conflictos [cite: 326]
     app.run(debug=True, port=8000)
