@@ -1,177 +1,92 @@
 :root {
-    --primary: #2563eb; /* Azul moderno */
-    --secondary: #64748b;
-    --success: #16a34a;
-    --danger: #dc2626;
-    --bg-main: #f1f5f9;
-    --bg-sidebar: #ffffff;
-    --bg-chat: #f8fafc;
+    /* MODO CLARO */
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --bg-main: #f8fafc;
+    --sidebar-bg: #ffffff;
+    --card-bg: #ffffff;
     --text-main: #1e293b;
-    --white: #ffffff;
-    --sidebar-width: 260px;
-    --input-area-height: 80px;
+    --text-muted: #64748b;
+    --border-color: #e2e8f0;
+    --search-bar: #f1f5f9;
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
-
-body { background-color: var(--bg-main); color: var(--text-main); height: 100vh; overflow: hidden; }
-
-/* Estructura Principal Grid */
-.app-container {
-    display: grid;
-    grid-template-columns: var(--sidebar-width) 1fr;
-    grid-template-rows: 1fr var(--input-area-height);
-    height: 100vh;
+.dark-mode {
+    /* MODO OSCURO */
+    --bg-main: #0f172a;
+    --sidebar-bg: #1e293b;
+    --card-bg: #1e293b;
+    --text-main: #f1f5f9;
+    --text-muted: #94a3b8;
+    --border-color: #334155;
+    --search-bar: #334155;
 }
 
-/* --- 1. SIDEBAR IZQUIERDA --- */
-.sidebar {
-    grid-row: 1 / -1; /* Ocupa todo el alto */
-    background-color: var(--bg-sidebar);
-    border-right: 1px solid #e2e8f0;
-    display: flex;
-    flex-direction: column;
-    padding: 20px;
-    z-index: 10;
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body { 
+    font-family: 'Inter', sans-serif; 
+    background-color: var(--bg-main); 
+    color: var(--text-main); 
+    transition: all 0.3s ease; 
 }
 
-.logo { font-size: 1.5rem; font-weight: 800; color: var(--primary); text-align: center; margin-bottom: 40px; }
+.app-container { display: flex; min-height: 100vh; }
 
-.info-nav { display: flex; flex-direction: column; gap: 10px; flex: 1; }
+/* SIDEBAR */
+.sidebar { 
+    width: 260px; 
+    background-color: var(--sidebar-bg); 
+    border-right: 1px solid var(--border-color); 
+    display: flex; 
+    flex-direction: column; 
+    position: fixed; 
+    height: 100vh; 
+    transition: all 0.3s ease;
+}
+
+.logo-section { padding: 30px 20px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border-color); }
+.logo-text { color: var(--primary); font-weight: 800; font-size: 1.5rem; letter-spacing: -0.5px; }
+
+.info-nav { padding: 20px 15px; flex: 1; }
 
 .nav-btn {
-    background: none;
-    color: var(--text-main);
-    text-align: left;
-    padding: 12px 15px;
-    border-radius: 8px;
-    font-size: 0.95rem;
-    font-weight: 500;
-    justify-content: flex-start;
+    display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 15px;
+    margin-bottom: 8px; border: none; border-radius: 8px; background: transparent;
+    color: var(--text-muted); cursor: pointer; transition: all 0.2s; font-weight: 500;
 }
 
-.nav-btn:hover { background-color: #f1f5f9; color: var(--primary); }
+.nav-btn:hover { background: var(--bg-main); color: var(--primary); }
+.nav-btn.active { background: #eff6ff; color: var(--primary); font-weight: 600; }
+.dark-mode .nav-btn.active { background: #1e293b; border: 1px solid var(--primary); }
 
-.nav-btn.active { background-color: #e0f2fe; color: var(--primary); font-weight: 600; }
+/* MAIN CONTENT */
+.main-content { flex: 1; margin-left: 260px; padding: 40px; }
 
-.sidebar-footer { text-align: center; color: var(--secondary); border-top: 1px solid #eee; padding-top: 10px; }
-
-/* --- 2. CONTENIDO PRINCIPAL (Centrado) --- */
-.main-content {
-    grid-column: 2;
-    grid-row: 1;
-    overflow-y: auto;
-    display: flex;
-    justify-content: center; /* Centrado horizontal */
-    padding: 20px;
-    padding-bottom: 0; /* Espacio para la barra de entrada */
+.panel-card { 
+    background-color: var(--card-bg); 
+    border-radius: 16px; 
+    border: 1px solid var(--border-color);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); 
+    padding: 30px; 
+    margin-bottom: 25px;
+    transition: all 0.3s ease;
 }
 
-.content-section {
-    width: 100%;
-    max-width: 800px; /* Ancho máximo para mantener lectura central */
-    display: none; /* Ocultas por defecto */
-}
-
+.content-section { display: none; animation: fadeIn 0.3s ease-in-out; }
 .active-section { display: block; }
 
-/* Estilos de Tarjetas (para secciones no-chat) */
-.panel-card {
-    background: var(--white);
-    padding: 30px;
-    border-radius: 12px;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-}
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
-.panel-card h3 { margin-bottom: 20px; color: var(--primary); }
+/* ELEMENTOS DE BUSQUEDA */
+.search-bar { display: flex; gap: 12px; background: var(--search-bar); padding: 8px; border-radius: 12px; }
+.search-bar input { flex: 1; border: none; background: transparent; padding: 10px; font-size: 1rem; outline: none; color: var(--text-main); }
+.btn-primary { background: var(--primary); color: white; border: none; padding: 12px 24px; border-radius: 10px; font-weight: 600; cursor: pointer; }
+.btn-primary:hover { background: var(--primary-hover); }
 
-.chart-panel { height: 70vh; display: flex; flex-direction: column; }
-.chart-wrapper { flex: 1; min-height: 0; }
+/* TABLAS */
+table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+th { text-align: left; padding: 12px; border-bottom: 2px solid var(--border-color); color: var(--text-muted); }
+td { padding: 12px; border-bottom: 1px solid var(--border-color); }
 
-/* --- 3. ÁREA DE CHAT (Centrada y Expandible) --- */
-.chat-container {
-    height: 100%;
-    display: flex;
-    justify-content: center;
-}
-
-.chat-window {
-    width: 100%;
-    max-width: 800px; /* Centrado */
-    background: var(--white);
-    border-radius: 12px 12px 0 0;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-    display: flex;
-    flex-direction: column;
-    padding: 30px;
-    overflow-y: auto;
-    transition: all 0.5s ease; /* Animación para expansión */
-}
-
-/* Efecto de expansión: Ocupa todo el ancho si está expandido */
-.chat-window.expanded {
-    max-width: 100%;
-    border-radius: 0;
-}
-
-.message {
-    padding: 15px 20px;
-    border-radius: 12px;
-    max-width: 80%;
-    line-height: 1.5;
-    margin-bottom: 20px;
-}
-
-.bot { background: var(--bg-chat); align-self: flex-start; color: #1e293b; }
-.user { background: var(--primary); color: white; align-self: flex-end; margin-left: auto;}
-
-/* --- 4. BARRA DE ENTRADA (Fija y Centrada) --- */
-.input-footer {
-    grid-column: 2;
-    grid-row: 2;
-    background: var(--white);
-    border-top: 1px solid #e2e8f0;
-    display: flex;
-    justify-content: center; /* Centra horizontalmente */
-    align-items: center;
-    padding: 0 20px;
-    z-index: 5;
-}
-
-.input-area-centered {
-    width: 100%;
-    max-width: 800px; /* Mismo ancho que el chat */
-    display: flex;
-    gap: 10px;
-    position: relative;
-    top: -15px; /* Sube la barra ligeramente sobre el chat */
-}
-
-#user-input {
-    flex: 1;
-    padding: 16px;
-    border: 1px solid #cbd5e1;
-    border-radius: 12px;
-    font-size: 1rem;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    outline: none;
-    transition: border-color 0.2s;
-}
-
-#user-input:focus { border-color: var(--primary); }
-
-#send-btn {
-    padding: 0 30px;
-    background-color: var(--success);
-    color: white;
-    font-size: 1rem;
-    border-radius: 12px;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-}
-
-#send-btn:hover { background-color: #15803d; }
-
-/* --- Elementos de relleno (Placeholder) --- */
-.results-list { margin-top: 15px; }
-.price-item { background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid var(--primary); }
-.map-box { height: 300px; background: #e2e8f0; border: 2px dashed #94a3b8; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #64748b; border-radius: 8px; }
+iframe { border-radius: 12px; border: 1px solid var(--border-color); background: #eee; }
