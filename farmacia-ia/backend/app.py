@@ -18,7 +18,7 @@ app = Flask(__name__)
 CORS(app)
 
 # CONFIGURACIÓN IA (Reemplaza con tu clave real)
-client = OpenAI(api_key="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")
+client = OpenAI(api_key="")
 
 # --- BASE DE DATOS (Estructura 3FN para FarmaConnect) ---
 def init_db():
