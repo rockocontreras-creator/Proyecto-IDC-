@@ -1,59 +1,80 @@
-<!DOCTYPE html> <html lang="es"> <head>
-    <meta charset="UTF-8"> <title>PharmaAI Pro</title> <link rel="stylesheet" href="style.css"> <style>
-        /* Estilos internos para componentes específicos del panel de control */
-        .panel-card { max-width: 950px; margin: 20px auto; padding: 25px; background: white; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
-        .content-section { display: none; } /* Oculta las secciones por defecto para la navegación SPA (Single Page Application) */
-        .active-section { display: block; } /* Clase que hace visible la sección activa mediante JavaScript */
-        .nav-btn.active { border: 2px solid #2563eb; background: #eff6ff; } /* Resalta visualmente el botón de navegación seleccionado */
-        iframe { border-radius: 12px; border: 1px solid #cbd5e1; } /* Estiliza el marco del mapa de geolocalización */
-    </style>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PharmaAI Pro | Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="app-container"> <aside class="sidebar">
-            <div class="logo" style="padding:20px; color:#2563eb; font-weight:bold; font-size:1.4rem;">PharmaAI</div>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="logo-section">
+                <i data-lucide="activity"></i>
+                <span class="logo-text">PharmaAI</span>
+            </div>
             <nav class="info-nav">
-                <button class="nav-btn" onclick="showSection('chat', this)">💬 Asistente</button>
-                <button class="nav-btn active" onclick="showSection('search', this)">🔍 Buscar Precio</button>
-                <button class="nav-btn" onclick="showSection('history', this); cargarHistorial();">📈 Historial</button>
-                <button class="nav-btn" onclick="showSection('map', this)">📍 Clínicas / Locales</button>
+                <button class="nav-btn active" onclick="showSection('search', this)">
+                    <i data-lucide="search" size="18"></i> Comparador
+                </button>
+                <button class="nav-btn" onclick="showSection('chat', this)">
+                    <i data-lucide="message-circle" size="18"></i> Mathew IA
+                </button>
+                <button class="nav-btn" onclick="showSection('history', this); cargarHistorial();">
+                    <i data-lucide="history" size="18"></i> Historial
+                </button>
+                <button class="nav-btn" onclick="showSection('map', this)">
+                    <i data-lucide="map-pin" size="18"></i> Mapa Salud
+                </button>
             </nav>
         </aside>
 
-        <main class="main-content" style="padding:20px; background:#f8fafc; min-height:100vh;">
-            
+        <main class="main-content">
+            <div style="display: flex; justify-content: flex-end; margin-bottom: 20px;">
+                <button id="theme-toggle" class="icon-btn">
+                    <i data-lucide="moon" id="theme-icon"></i>
+                </button>
+            </div>
+
             <div id="search-section" class="content-section active-section">
-                <div class="card panel-card">
-                    <h3>Comparador de Precios</h3>
-                    <div style="display:flex; gap:10px; margin:20px 0;">
-                        <input type="text" id="manual-search" placeholder="Ej: Paracetamol" style="flex:1; padding:12px; border-radius:8px; border:1px solid #ccc;">
-                        <button onclick="startScraping()" style="padding:12px 20px; background:#2563eb; color:white; border:none; border-radius:8px; cursor:pointer;">🔍 Comparar</button>
+                <div class="panel-card">
+                    <h2>Comparación de Precios</h2>
+                    <div class="search-bar">
+                        <input type="text" id="manual-search" placeholder="Ej: Paracetamol 500mg">
+                        <button class="btn-primary" onclick="startScraping()">Comparar</button>
                     </div>
                     <div id="scraping-results"></div>
                 </div>
             </div>
 
+            <div id="chat-section" class="content-section">
+                <div class="panel-card" style="height: 75vh; display: flex; flex-direction: column;">
+                    <h2>Asistente Mathew</h2>
+                    <div id="chat-box" class="chat-display"></div>
+                    <div class="search-bar">
+                        <input type="text" id="chat-input" placeholder="Pregunta sobre medicamentos...">
+                        <button class="btn-primary" onclick="enviarMensaje()">Consultar</button>
+                    </div>
+                </div>
+            </div>
+
             <div id="history-section" class="content-section">
-                <div class="card panel-card">
-                    <h3>📈 Historial (Base de Datos 3FN)</h3>
-                    <div id="history-content" style="margin-top:20px;"></div>
+                <div class="panel-card">
+                    <h2>Historial (DB 3FN)</h2>
+                    <div id="history-content"></div>
                 </div>
             </div>
 
             <div id="map-section" class="content-section">
-                <div class="card panel-card">
-                    <h3>Mapa de Salud</h3>
+                <div class="panel-card">
+                    <h2>Geolocalización</h2>
                     <div style="display:flex; gap:10px; margin-bottom:15px;">
-                        <button onclick="actualizarMapa('hospitales')" style="flex:1; padding:10px; cursor:pointer; font-weight:bold;">📍 Clínicas</button>
-                        <button onclick="actualizarMapa('farmacias')" style="flex:1; padding:10px; cursor:pointer; font-weight:bold;">💊 Farmacias</button>
+                        <button class="btn-primary" style="flex:1" onclick="actualizarMapa('hospitales')">Clínicas</button>
+                        <button class="btn-primary" style="flex:1; background:#64748b" onclick="actualizarMapa('farmacias')">Farmacias</button>
                     </div>
-                    <iframe id="map-iframe" width="100%" height="500" frameborder="0" style="border:0;" src="about:blank"></iframe>
-                </div>
-            </div>
-
-            <div id="chat-section" class="content-section">
-                <div class="card panel-card">
-                    <h3>Asistente PharmaAI</h3>
-                    <p>Hola Usuario, selecciona una opción del menú para comenzar.</p>
+                    <iframe id="map-iframe" width="100%" height="450" frameborder="0" src="about:blank"></iframe>
                 </div>
             </div>
         </main>
