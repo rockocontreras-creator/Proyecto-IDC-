@@ -1,5 +1,6 @@
 lucide.createIcons();
 let ultimosResultados = "";
+let base64File = null;
 
 // MODO OSCURO GLOBAL
 const themeBtn = document.getElementById('theme-toggle');
@@ -17,6 +18,65 @@ function showSection(id, btn) {
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
     document.getElementById(id + '-section').classList.add('active-section');
     btn.classList.add('active');
+}
+
+// ARCHIVOS (RECETA MÉDICA)
+function previewFile() {
+    const fileInput = document.getElementById('file-input');
+    const previewContainer = document.getElementById('file-preview-container');
+    const previewName = document.getElementById('file-preview-name');
+    
+    if (fileInput.files.length > 0) {
+        const file = fileInput.files[0];
+        previewName.textContent = file.name;
+        previewContainer.style.display = 'flex';
+        
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            base64File = e.target.result.split(',')[1];
+        };
+        reader.readAsDataURL(file);
+    }
+}
+
+function clearFile() {
+    document.getElementById('file-input').value = "";
+    document.getElementById('file-preview-container').style.display = 'none';
+    base64File = null;
+}
+
+// CHAT ASISTENTE
+async function enviarMensaje() {
+    const inp = document.getElementById('chat-input');
+    const box = document.getElementById('chat-box');
+    const prompt = inp.value;
+    
+    if(!prompt && !base64File) return;
+
+    let userMsg = prompt ? prompt : "🖼️ Enviaste un documento/imagen";
+    box.innerHTML += `<div class="msg-user"><b>Tú:</b> ${userMsg}</div>`;
+    inp.value = "";
+    box.scrollTop = box.scrollHeight;
+
+    const fileToSend = base64File;
+    clearFile();
+
+    try {
+        const r = await fetch('http://127.0.0.1:8000/consultar_asistente', {
+            method: 'POST', 
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                pregunta: prompt, 
+                contexto_precios: ultimosResultados,
+                archivo_base64: fileToSend
+            })
+        });
+        const data = await r.json();
+        box.innerHTML += `<div class="msg-mathew"><b>Mathew:</b> ${data.respuesta}</div>`;
+        box.scrollTop = box.scrollHeight;
+    } catch { 
+        box.innerHTML += `<div class="msg-mathew">Error de conexión con Mathew.</div>`; 
+    }
 }
 
 // SCRAPING
@@ -40,44 +100,53 @@ async function startScraping() {
     } catch { res.innerHTML = "Error al conectar con el servidor."; }
 }
 
-// CHAT ASISTENTE
-async function enviarMensaje() {
-    const inp = document.getElementById('chat-input');
-    const box = document.getElementById('chat-box');
-    if(!inp.value) return;
-
-    box.innerHTML += `<div class="msg-user"><b>Tú:</b> ${inp.value}</div>`;
-    const prompt = inp.value; inp.value = "";
-    box.scrollTop = box.scrollHeight;
+// HISTORIAL (DURANTE LA NAVEGACIÓN SPA)
+async function cargarHistorial() {
+    const contenedor = document.getElementById('history-results');
+    contenedor.innerHTML = "<p>⏳ Cargando registros del historial...</p>";
+    
+    // Mapeo estricto de colores por farmacia para mantener coherencia visual
+    const coloresFarmacias = {
+        "Ahumada": "#003399",
+        "Dr. Simi": "#ce000c",
+        "Salcobrand": "#ffd400"
+    };
 
     try {
-        const r = await fetch('http://127.0.0.1:8000/consultar_asistente', {
-            method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({pregunta: prompt, contexto_precios: ultimosResultados})
-        });
+        const r = await fetch('http://127.0.0.1:8000/obtener_historial');
         const data = await r.json();
-        box.innerHTML += `<div class="msg-mathew"><b>Mathew:</b> ${data.respuesta}</div>`;
-        box.scrollTop = box.scrollHeight;
-    } catch { box.innerHTML += `<div class="msg-mathew">Error de conexión.</div>`; }
+        
+        if (data.length === 0) {
+            contenedor.innerHTML = "<p style='color:var(--text-muted);'>No hay búsquedas registradas en el historial aún.</p>";
+            return;
+        }
+
+        let html = "<table><tr><th>Búsqueda</th><th>Farmacia</th><th>Producto Encontrado</th><th>Precio</th><th>Fecha / Hora</th></tr>";
+        data.forEach(row => {
+            // row[0]=buscado, row[1]=farmacia, row[2]=nombre_producto, row[3]=precio, row[4]=fecha
+            const farmaciaNombre = row[1];
+            const colorColor = coloresFarmacias[farmaciaNombre] || "var(--text-main)";
+            
+            html += `<tr>
+                <td style="font-weight:600; text-transform:capitalize;">${row[0]}</td>
+                <td style="color:${colorColor}; font-weight:bold;">${farmaciaNombre}</td>
+                <td style="color:var(--text-muted); font-size:0.95rem;">${row[2]}</td>
+                <td style="font-weight:600;">$${row[3].toLocaleString('es-CL')}</td>
+                <td style="font-size:0.9rem; color:var(--text-muted);">${row[4]}</td>
+            </tr>`;
+        });
+        contenedor.innerHTML = html + "</table>";
+    } catch {
+        contenedor.innerHTML = "<p style='color:red;'>Error al conectar con la base de datos.</p>";
+    }
 }
 
-// MAPA (CORRECCIÓN ERROR 404)
+// MAPA
 function actualizarMapa(tipo) {
     if(navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(p => {
-            const lat = p.coords.latitude;
-            const lng = p.coords.longitude;
-            // Se corrigió la URL añadiendo "/maps" después del dominio de Google
-            const url = `https://www.google.com/maps/embed/v1/search?key=TU_API_KEY_OPCIONAL&q=${tipo}&center=${lat},${lng}&zoom=14`;
-            
-            // Si no tienes API Key, usamos esta versión pública que no falla:
-            const urlPublica = `https://maps.google.com/maps?q=${tipo}&ll=${lat},${lng}&z=14&output=embed`;
-            
-            document.getElementById('map-iframe').src = urlPublica;
-        }, (error) => {
-            alert("Error al obtener ubicación. Por favor, activa el GPS del navegador.");
+            const lat = p.coords.latitude, lng = p.coords.longitude;
+            document.getElementById('map-iframe').src = `https://maps.google.com/maps?q=${tipo}&ll=${lat},${lng}&z=14&output=embed`;
         });
-    } else {
-        alert("Tu navegador no soporta geolocalización.");
     }
 }
