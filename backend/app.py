@@ -14,8 +14,11 @@ from groq import Groq
 app = Flask(__name__)
 CORS(app)
 
-client = Groq(api_key="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")
+# CONFIGURACIÓN GROQ (IA Gratuita y Multimodal)
+# Asegúrate de poner aquí tu clave activa generada en la consola de Groq
+client = Groq(api_key="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")
 
+# --- BASE DE DATOS (Estructura 3FN Completa) ---
 def init_db():
     conn = sqlite3.connect('farmacia.db')
     cursor = conn.cursor()
@@ -33,26 +36,46 @@ def init_db():
 
 init_db()
 
+def guardar_busqueda(remedio, resultados):
+    conn = sqlite3.connect('farmacia.db')
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR IGNORE INTO medicamentos (nombre_buscado) VALUES (?)", (remedio.lower(),))
+    cursor.execute("SELECT id FROM medicamentos WHERE nombre_buscado = ?", (remedio.lower(),))
+    med_id = cursor.fetchone()[0]
+
+    for r in resultados:
+        cursor.execute("SELECT id FROM farmacias WHERE nombre = ?", (r['farmacia'],))
+        f_id = cursor.fetchone()[0]
+        try:
+            precio_int = int(''.join(filter(str.isdigit, str(r['precio']))))
+            cursor.execute('''INSERT INTO historial (farmacia_id, medicamento_id, nombre_producto, precio, link) 
+                              VALUES (?,?,?,?,?)''', (f_id, med_id, r['nombre'], precio_int, r['link']))
+        except: pass
+    conn.commit()
+    conn.close()
+
+# --- MOTOR DE SCRAPING MULTIHILO (Selenium) ---
 def get_driver():
     opts = Options()
     opts.add_argument("--headless")
     opts.add_argument("--blink-settings=imagesEnabled=false")
-    # Argumentos vitales para que Chrome funcione en servidores Linux/Render
-    opts.add_argument("--no-sandbox")
-    opts.add_argument("--disable-dev-shm-usage")
+    opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=opts)
 
 def scrape_task(func, remedio, res_list):
     driver = get_driver()
-    try: func(remedio, driver, res_list)
-    except: pass
-    finally: driver.quit()
+    try: 
+        func(remedio, driver, res_list)
+    except Exception as e: 
+        print(f"Error en hilo de farmacia: {e}")
+    finally: 
+        driver.quit()
 
 def logic_ahumada(remedio, driver, res):
     driver.get(f"https://www.farmaciasahumada.cl/search?q={remedio}&srule=price-low-to-high&sz=1")
     WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CLASS_NAME, "price")))
     nom = driver.find_element(By.CLASS_NAME, "pdp-link").text.strip()
-    pre = driver.find_element(By.CLASS_NAME, "price").get_attribute("innerText").split('\n')[0]
+    pre = driver.find_element(By.CLASS_NAME, "price").get_attribute("innerText").split('\n')[0].strip()
     lnk = driver.find_element(By.CLASS_NAME, "pdp-link").find_element(By.TAG_NAME, "a").get_attribute("href")
     res.append({"farmacia": "Ahumada", "nombre": nom, "precio": pre, "link": lnk, "color": "#003399"})
 
@@ -60,48 +83,40 @@ def logic_drsimi(remedio, driver, res):
     driver.get(f"https://www.drsimi.cl/{remedio}?_q={remedio}&map=ft&order=OrderByPriceASC")
     WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, "[class*='currencyContainer']")))
     nom = driver.find_element(By.CSS_SELECTOR, "[class*='brandName']").text.strip()
-    pre = driver.find_element(By.CSS_SELECTOR, "[class*='currencyContainer']").get_attribute("innerText")
+    pre = driver.find_element(By.CSS_SELECTOR, "[class*='currencyContainer']").get_attribute("innerText").strip()
     lnk = driver.find_element(By.CSS_SELECTOR, "a[class*='clearLink']").get_attribute("href")
     res.append({"farmacia": "Dr. Simi", "nombre": nom, "precio": pre, "link": lnk, "color": "#ce000c"})
 
 def logic_salcobrand(remedio, driver, res):
     driver.get(f"https://salcobrand.cl/search_result?query={remedio}&sort=price_asc")
     WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, ".product-info")))
-    d = driver.execute_script("let p=document.querySelector('.product-info'); let c=p.closest('.product'); return {n:p.innerText.split('\\n')[0], pr:c.querySelector('.price').innerText, l:c.querySelector('a').href};")
-    if d: res.append({"farmacia": "Salcobrand", "nombre": d['n'], "precio": d['pr'], "link": d['l'], "color": "#ffd400"})
+    d = driver.execute_script("""
+        let p = document.querySelector('.product-info');
+        if(!p) return null;
+        let c = p.closest('.product');
+        let priceElem = c.querySelector('.price:not(.old-price)') || c.querySelector('.price');
+        return { n: p.innerText.split('\\n')[0], pr: priceElem.innerText, l: c.querySelector('a').href };
+    """)
+    if d:
+        res.append({"farmacia": "Salcobrand", "nombre": d['n'], "precio": d['pr'], "link": d['l'], "color": "#ffd400"})
 
-# Ruta principal para validar que el servidor funciona en la URL base
-@app.route('/', methods=['GET'])
-def home():
-    return jsonify({
-        "estado": "Activo",
-        "proyecto": "FarmaConnect",
-        "mensaje": "La API está en línea y funcionando."
-    })
+# --- RUTAS DE LA API ---
 
 @app.route('/scraping_manual', methods=['POST'])
 def scraping_manual():
     remedio = request.json.get('remedio', '')
+    if not remedio: return jsonify({"error": "No se envió término"}), 400
     res = []
-    threads = [threading.Thread(target=scrape_task, args=(f, remedio, res)) for f in [logic_ahumada, logic_drsimi, logic_salcobrand]]
+    threads = [
+        threading.Thread(target=scrape_task, args=(logic_ahumada, remedio, res)),
+        threading.Thread(target=scrape_task, args=(logic_drsimi, remedio, res)),
+        threading.Thread(target=scrape_task, args=(logic_salcobrand, remedio, res))
+    ]
     for t in threads: t.start()
     for t in threads: t.join()
+    
+    if res: guardar_busqueda(remedio, res)
     return jsonify({"precios": res})
-
-@app.route('/consultar_asistente', methods=['POST'])
-def consultar_asistente():
-    data = request.json
-    pregunta = data.get('pregunta')
-    contexto = data.get('contexto_precios')
-    reglas = ("Eres Mathew, asistente de FarmaConnect. Solo respondes sobre salud y medicamentos. "
-              "No mediques dosis, sugiere ver a un profesional. Si preguntan otros temas, declina amablemente.")
-    try:
-        completion = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "system", "content": reglas}, {"role": "user", "content": f"Contexto: {contexto}. Pregunta: {pregunta}"}]
-        )
-        return jsonify({"respuesta": completion.choices[0].message.content})
-    except: return jsonify({"respuesta": "Error de comunicación."}), 500
 
 @app.route('/obtener_historial')
 def obtener_historial():
@@ -110,9 +125,55 @@ def obtener_historial():
     c.execute('''SELECT m.nombre_buscado, f.nombre, h.nombre_producto, h.precio, h.fecha 
                  FROM historial h JOIN farmacias f ON h.farmacia_id = f.id 
                  JOIN medicamentos m ON h.medicamento_id = m.id ORDER BY h.fecha DESC LIMIT 20''')
-    data = c.fetchall(); conn.close()
+    data = c.fetchall()
+    conn.close()
     return jsonify(data)
 
+@app.route('/consultar_asistente', methods=['POST'])
+def consultar_asistente():
+    data = request.json
+    pregunta = data.get('pregunta', '')
+    contexto = data.get('contexto_precios', '')
+    archivo_base64 = data.get('archivo_base64') 
+
+    reglas = (
+        "Eres Mathew, asistente experto de FarmaConnect. Solo respondes sobre salud, medicamentos y análisis de recetas médicas. "
+        "REGLA CRÍTICA IMPERATIVA: No puedes recetar ni formular dosis absolutas de medicamentos. No reemplazas bajo ninguna circunstancia a un médico. "
+        "Si te preguntan cosas de otros dominios (política, entretenimiento, matemáticas, etc.), declina responder educadamente diciendo que estás limitado al ámbito de salud. "
+        "Sé breve, claro, formal y añade siempre al final de respuestas asistenciales la sugerencia de visitar a un profesional médico."
+    )
+
+    try:
+        # Modo con Imagen Adjunta usando el nuevo modelo de visión activo de Groq
+        if archivo_base64:
+            contenido_mensaje = [
+                {"type": "text", "text": f"{reglas}\nContexto de precios actuales del scraping: {contexto}\nPregunta o instrucción adicional: {pregunta}"},
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/jpeg;base64,{archivo_base64}"
+                    }
+                }
+            ]
+            completion = client.chat.completions.create(
+                model="llama-3.2-90b-vision-preview", # Modelo de visión actualizado y soportado por Groq
+                messages=[{"role": "user", "content": contenido_mensaje}]
+            )
+        
+        # Modo estándar (Sólo texto)
+        else:
+            completion = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {"role": "system", "content": reglas}, 
+                    {"role": "user", "content": f"Contexto de precios: {contexto}. Pregunta: {pregunta}"}
+                ]
+            )
+            
+        return jsonify({"respuesta": completion.choices[0].message.content})
+    except Exception as e:
+        print(f"ERROR EN ASISTENTE: {e}")
+        return jsonify({"respuesta": "Mathew no pudo procesar tu solicitud en este momento."}), 500
+
 if __name__ == '__main__':
-    # host='0.0.0.0' permite que Render exponga tu proyecto al exterior
-    app.run(host='0.0.0.0', port=8000)
+    app.run(debug=True, port=8000)
