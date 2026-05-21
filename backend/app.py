@@ -16,7 +16,7 @@ CORS(app)
 
 # CONFIGURACIÓN GROQ (IA Gratuita y Multimodal)
 # Asegúrate de poner aquí tu clave activa generada en la consola de Groq
-client = Groq(api_key="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")
+client = Groq(api_key="millavegroq")
 
 # --- BASE DE DATOS (Estructura 3FN Completa) ---
 def init_db():
