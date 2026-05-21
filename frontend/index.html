@@ -2,21 +2,21 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>PharmaAI Pro</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <title>FarmaConnect Pro</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="app-container">
         <aside class="sidebar">
-            <h2 style="color:var(--primary); margin-bottom:30px;">PharmaAI</h2>
+            <h2 style="color:var(--primary); margin-bottom:30px;">FarmaConnect</h2>
             <nav>
-                <button class="nav-btn active" onclick="showSection('search', this)">
-                    <i data-lucide="search"></i> Comparador
-                </button>
-                <button class="nav-btn" onclick="showSection('chat', this)">
+                <button class="nav-btn active" onclick="showSection('chat', this)">
                     <i data-lucide="message-circle"></i> Mathew IA
+                </button>
+                <button class="nav-btn" onclick="showSection('search', this)">
+                    <i data-lucide="search"></i> Comparador
                 </button>
                 <button class="nav-btn" onclick="showSection('history', this); cargarHistorial();">
                     <i data-lucide="history"></i> Historial
@@ -34,7 +34,41 @@
                 </button>
             </div>
 
-            <div id="search-section" class="content-section active-section">
+            <div id="chat-section" class="content-section active-section">
+                <div class="panel-card chat-card">
+                    <h2>Asistente Virtual Mathew</h2>
+                    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 15px;">Envía tus dudas o sube una imagen de tu receta médica para analizarla.</p>
+                    
+                    <div id="chat-box">
+                        <div class="msg-mathew">
+                            <b>Mathew:</b> ¡Hola! Bienvenido a FarmaConnect. Soy tu asistente virtual de salud. ¿En qué puedo ayudarte hoy? Si tienes una receta médica, puedes adjuntarla usando el botón de clip.
+                        </div>
+                    </div>
+                    
+                    <div class="chat-input-container">
+                        <div class="input-wrapper">
+                            <label for="file-input" class="file-label" title="Adjuntar imagen o receta">
+                                <i data-lucide="paperclip"></i>
+                            </label>
+                            <input type="file" id="file-input" accept="image/*" style="display:none;" onchange="previewFile()">
+                            
+                            <input type="text" id="chat-input" placeholder="Escribe tu consulta aquí..." onkeypress="if(event.key === 'Enter') enviarMensaje()">
+                            <button class="btn-primary" onclick="enviarMensaje()">
+                                <i data-lucide="send" size="16"></i>
+                            </button>
+                        </div>
+                        <div id="file-preview-container" style="display:none;">
+                            <span id="file-preview-name"></span>
+                            <button onclick="clearFile()" style="background:none; border:none; color:red; cursor:pointer; margin-left:5px;">✕</button>
+                        </div>
+                        <p class="med-warning">
+                            ⚠️ Aviso: Este asistente es una Inteligencia Artificial y no reemplaza la opinión de un profesional de la salud. Los diagnósticos o análisis no son 100% infalibles. Por favor, consulte siempre a su médico.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="search-section" class="content-section">
                 <div class="panel-card">
                     <h2>Comparador de Precios</h2>
                     <div style="display:flex; gap:10px; margin-top:20px; background:var(--bg-main); padding:10px; border-radius:12px;">
@@ -45,14 +79,11 @@
                 </div>
             </div>
 
-            <div id="chat-section" class="content-section">
+            <div id="history-section" class="content-section">
                 <div class="panel-card">
-                    <h2>Asistente Mathew</h2>
-                    <div id="chat-box" style="margin-top:20px;"></div>
-                    <div style="display:flex; gap:10px; margin-top:15px;">
-                        <input type="text" id="chat-input" placeholder="Pregunta sobre salud..." style="flex:1; padding:12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-main); color:var(--text-main);">
-                        <button class="btn-primary" onclick="enviarMensaje()">Consultar</button>
-                    </div>
+                    <h2>Historial de Consultas</h2>
+                    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 20px;">Auditoría relacional de los últimos 20 medicamentos analizados mediante web scraping.</p>
+                    <div id="history-results"></div>
                 </div>
             </div>
 
