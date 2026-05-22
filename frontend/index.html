@@ -2,9 +2,11 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FarmaConnect Pro</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -18,7 +20,7 @@
                 <button class="nav-btn" onclick="showSection('search', this)">
                     <i data-lucide="search"></i> Comparador
                 </button>
-                <button class="nav-btn" onclick="showSection('history', this); cargarHistorial();">
+                <button class="nav-btn" onclick="abrirHistorial(this)">
                     <i data-lucide="history"></i> Historial
                 </button>
                 <button class="nav-btn" onclick="showSection('map', this)">
@@ -37,17 +39,17 @@
             <div id="chat-section" class="content-section active-section">
                 <div class="panel-card chat-card">
                     <h2>Asistente Virtual Mathew</h2>
-                    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 15px;">Envía tus dudas o sube una imagen de tu receta médica para analizarla.</p>
+                    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 15px;">Adjunta tu receta médica o realiza consultas de salud.</p>
                     
                     <div id="chat-box">
                         <div class="msg-mathew">
-                            <b>Mathew:</b> ¡Hola! Bienvenido a FarmaConnect. Soy tu asistente virtual de salud. ¿En qué puedo ayudarte hoy? Si tienes una receta médica, puedes adjuntarla usando el botón de clip.
+                            <b>Mathew:</b> ¡Hola! Bienvenido a FarmaConnect. ¿En qué puedo orientarte hoy?
                         </div>
                     </div>
                     
                     <div class="chat-input-container">
                         <div class="input-wrapper">
-                            <label for="file-input" class="file-label" title="Adjuntar imagen o receta">
+                            <label for="file-input" class="file-label" title="Subir receta médica">
                                 <i data-lucide="paperclip"></i>
                             </label>
                             <input type="file" id="file-input" accept="image/*" style="display:none;" onchange="previewFile()">
@@ -57,12 +59,12 @@
                                 <i data-lucide="send" size="16"></i>
                             </button>
                         </div>
-                        <div id="file-preview-container" style="display:none;">
-                            <span id="file-preview-name"></span>
-                            <button onclick="clearFile()" style="background:none; border:none; color:red; cursor:pointer; margin-left:5px;">✕</button>
+                        <div id="file-preview-container" style="display:none; align-items:center; margin-top:8px; background:var(--bg-main); padding:6px 12px; border-radius:6px;">
+                            <span id="file-preview-name" style="font-size:0.85rem; color:var(--text-main);"></span>
+                            <button onclick="clearFile()" style="background:none; border:none; color:#ef4444; cursor:pointer; margin-left:10px; font-weight:bold;">✕</button>
                         </div>
                         <p class="med-warning">
-                            ⚠️ Aviso: Este asistente es una Inteligencia Artificial y no reemplaza la opinión de un profesional de la salud. Los diagnósticos o análisis no son 100% infalibles. Por favor, consulte siempre a su médico.
+                            ⚠️ Los análisis de IA no reemplazan el diagnóstico de un médico. Consulte a su profesional de la salud.
                         </p>
                     </div>
                 </div>
@@ -70,31 +72,41 @@
 
             <div id="search-section" class="content-section">
                 <div class="panel-card">
-                    <h2>Comparador de Precios</h2>
-                    <div style="display:flex; gap:10px; margin-top:20px; background:var(--bg-main); padding:10px; border-radius:12px;">
-                        <input type="text" id="manual-search" placeholder="Ej: Tapsin" style="flex:1; background:transparent; border:none; color:var(--text-main); outline:none;">
+                    <h2>Comparador de Precios en Tiempo Real</h2>
+                    <div style="display:flex; gap:10px; margin-top:20px; background:var(--bg-main); padding:10px; border-radius:12px; border:1px solid var(--border);">
+                        <input type="text" id="manual-search" placeholder="Ej: Paracetamol o Ibuprofeno" style="flex:1; background:transparent; border:none; color:var(--text-main); outline:none; padding-left:10px;">
                         <button class="btn-primary" onclick="startScraping()">Comparar</button>
                     </div>
-                    <div id="scraping-results"></div>
+                    <div id="scraping-results" style="margin-top:20px;"></div>
                 </div>
             </div>
 
             <div id="history-section" class="content-section">
                 <div class="panel-card">
-                    <h2>Historial de Consultas</h2>
-                    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 20px;">Auditoría relacional de los últimos 20 medicamentos analizados mediante web scraping.</p>
-                    <div id="history-results"></div>
+                    <h2>Evolución de Precio Histórico</h2>
+                    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 20px;">Elige un medicamento guardado para auditar los cambios de valor en el tiempo.</p>
+                    
+                    <div style="margin-bottom: 25px; display:flex; align-items:center; gap:10px;">
+                        <label for="med-selector" style="font-weight: 600; font-size: 0.95rem;">Seleccionar Producto:</label>
+                        <select id="med-selector" onchange="cargarHistorialFiltrado()" style="padding: 10px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--card-bg); color: var(--text-main); font-weight: 600; outline: none; cursor: pointer; min-width: 220px;">
+                            <option value="">-- Buscando Base de Datos --</option>
+                        </select>
+                    </div>
+                    
+                    <div class="chart-container" style="position: relative; height:380px; width:100%; background: var(--bg-main); padding:15px; border-radius:12px; border:1px solid var(--border);">
+                        <canvas id="historyChart"></canvas>
+                    </div>
                 </div>
             </div>
 
             <div id="map-section" class="content-section">
                 <div class="panel-card">
-                    <h2>Mapa de Salud</h2>
+                    <h2>Sucursales Cercanas</h2>
                     <div style="display:flex; gap:10px; margin-bottom:15px; margin-top:15px;">
-                        <button class="btn-primary" style="flex:1" onclick="actualizarMapa('hospitales')">Clínicas</button>
+                        <button class="btn-primary" style="flex:1" onclick="actualizarMapa('hospitales')">Centros Médicos</button>
                         <button class="btn-primary" style="flex:1; background:#64748b" onclick="actualizarMapa('farmacias')">Farmacias</button>
                     </div>
-                    <iframe id="map-iframe" width="100%" height="500" frameborder="0" src="about:blank"></iframe>
+                    <iframe id="map-iframe" width="100%" height="450" frameborder="0" src="about:blank" style="border-radius:12px; border:1px solid var(--border);"></iframe>
                 </div>
             </div>
         </main>
