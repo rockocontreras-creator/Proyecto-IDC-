@@ -1,7 +1,7 @@
 lucide.createIcons();
 let ultimosResultados = "";
 let base64File = null;
-let miGrafico = null; // Instancia global para evitar duplicidad de render
+let miGrafico = null; // Patrón Singleton: Instancia global para evitar duplicidad de renderizado
 
 // GESTIÓN DE MODO OSCURO
 const themeBtn = document.getElementById('theme-toggle');
@@ -10,7 +10,7 @@ themeBtn.addEventListener('click', () => {
     document.getElementById('theme-icon').setAttribute('data-lucide', isDark ? 'sun' : 'moon');
     localStorage.setItem('theme', isDark ? 'dark' : 'light');
     lucide.createIcons();
-    if(miGrafico) cargarHistorialFiltrado(); // Redibuja el gráfico adaptando colores de fuentes
+    if(miGrafico) cargarHistorialFiltrado(); // Redibuja el gráfico adaptando colores de fuentes de inmediato
 });
 if(localStorage.getItem('theme') === 'dark') document.body.classList.add('dark-mode');
 
@@ -21,7 +21,7 @@ function showSection(id, btn) {
     btn.classList.add('active');
 }
 
-// CONTROL DE ARCHIVOS ADJUNTOS
+// CONTROL DE ARCHIVOS ADJUNTOS (RECETAS)
 function previewFile() {
     const fileInput = document.getElementById('file-input');
     const previewContainer = document.getElementById('file-preview-container');
@@ -46,21 +46,33 @@ function clearFile() {
     base64File = null;
 }
 
-// CHAT CON LA IA
+// INTERACCIÓN CON ASISTENTE VIRTUAL MATHEW IA
 async function enviarMensaje() {
     const inp = document.getElementById('chat-input');
     const box = document.getElementById('chat-box');
-    const prompt = inp.value;
+    const prompt = inp.value.trim();
     
     if(!prompt && !base64File) return;
 
-    let userMsg = prompt ? prompt : "🖼️ Imagen/Receta enviada";
-    box.innerHTML += `<div class="msg-user"><b>Tú:</b> ${userMsg}</div>`;
+    let userMsg = prompt ? prompt : "🖼️ Imagen de Receta Médica enviada";
+    box.innerHTML += `<div class="message message-user"><b>Tú:</b> ${userMsg}</div>`;
     inp.value = "";
     box.scrollTop = box.scrollHeight;
 
+    // Bloqueo de controles para evitar saturación de peticiones concurrentes
+    inp.disabled = true;
+    const sendBtn = inp.nextElementSibling;
+    if(sendBtn) sendBtn.disabled = true;
+
     const fileToSend = base64File;
     clearFile();
+
+    // Crear burbuja de carga temporal para Mathew
+    const loadingDiv = document.createElement('div');
+    loadingDiv.className = 'message message-mathew loading-msg';
+    loadingDiv.innerHTML = '⚡ <i>Mathew está analizando los registros...</i>';
+    box.appendChild(loadingDiv);
+    box.scrollTop = box.scrollHeight;
 
     try {
         const r = await fetch('http://127.0.0.1:8000/consultar_asistente', {
@@ -69,36 +81,83 @@ async function enviarMensaje() {
             body: JSON.stringify({ pregunta: prompt, contexto_precios: ultimosResultados, archivo_base64: fileToSend })
         });
         const data = await r.json();
-        box.innerHTML += `<div class="msg-mathew"><b>Mathew:</b> ${data.respuesta}</div>`;
+        
+        // Quitar mensaje de carga
+        loadingDiv.remove();
+
+        // Renderizado Profesional: Convertimos el Markdown de Groq en HTML real
+        const respuestaDiv = document.createElement('div');
+        respuestaDiv.className = 'message message-mathew';
+        respuestaDiv.innerHTML = `<b>Mathew:</b> ${marked.parse(data.respuesta)}`;
+        
+        box.appendChild(respuestaDiv);
         box.scrollTop = box.scrollHeight;
-    } catch { 
-        box.innerHTML += `<div class="msg-mathew">No se pudo contactar al asistente.</div>`; 
+    } catch (err) { 
+        loadingDiv.remove();
+        box.innerHTML += `<div class="message message-mathew" style="color:var(--text-muted);">No se pudo establecer la conexión con los protocolos de Mathew.</div>`; 
+    } finally {
+        // Desbloqueo de componentes interactivos
+        inp.disabled = false;
+        if(sendBtn) sendBtn.disabled = false;
+        inp.focus();
     }
 }
 
-// MOTOR DE COMPARACIÓN (SCRAPING)
+// MOTOR DE COMPARACIÓN EN TIEMPO REAL (CON SKELETON LOADING)
 async function startScraping() {
-    const q = document.getElementById('manual-search').value;
+    const q = document.getElementById('manual-search').value.trim();
     const res = document.getElementById('scraping-results');
+    const searchBtn = document.querySelector('.search-bar-box button');
     if(!q) return;
-    res.innerHTML = "<p style='margin-top:20px; color:var(--text-muted);'>⏳ Analizando catálogos de farmacias chilenas...</p>";
+    
+    // Bloquear controles visuales
+    searchBtn.disabled = true;
+    
+    // Inyección de un esqueleto de carga técnico (Skeleton Screen) para simular la estructura
+    res.innerHTML = `
+        <div style="width: 100%; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; animation: fadeIn 0.3s;">
+            <div style="background: var(--border); height: 45px; width: 100%; padding: 12px; font-weight: 600; font-size: 0.85rem; color: var(--text-muted);">⏳ CONECTANDO CON LOS HILOS DE SELENIUM EN CONSOLA...</div>
+            <div style="padding: 20px; display: flex; flex-direction: column; gap: 12px; background: var(--card-bg);">
+                <div style="height: 20px; background: var(--border); border-radius: 4px; opacity: 0.6; animation: pulse 1.5s infinite;"></div>
+                <div style="height: 20px; background: var(--border); border-radius: 4px; opacity: 0.4; animation: pulse 1.5s infinite 0.2s;"></div>
+                <div style="height: 20px; background: var(--border); border-radius: 4px; opacity: 0.2; animation: pulse 1.5s infinite 0.4s;"></div>
+            </div>
+        </div>
+    `;
+    
     try {
         const r = await fetch('http://127.0.0.1:8000/scraping_manual', {
-            method: 'POST', headers: {'Content-Type': 'application/json'},
+            method: 'POST', 
+            headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({remedio: q})
         });
         const data = await r.json();
         ultimosResultados = JSON.stringify(data.precios);
-        let html = "<table><tr><th>Farmacia</th><th>Producto Encontrado</th><th>Precio</th><th>Acción</th></tr>";
+        
+        if(!data.precios || data.precios.length === 0) {
+            res.innerHTML = "<p style='color:var(--text-muted); padding: 10px;'>No se encontraron ofertas comerciales para este término en las cadenas analizadas.</p>";
+            return;
+        }
+
+        // Construcción de la tabla estructurada en 3FN
+        let html = "<table><tr><th>Farmacia</th><th>Producto Encontrado</th><th>Precio Registrado</th><th>Acción Comercial</th></tr>";
         data.precios.forEach(p => {
-            html += `<tr><td style="color:${p.color}; font-weight:bold;">${p.farmacia}</td><td>${p.nombre}</td><td style="font-weight:600;">$${p.precio}</td><td><a href="${p.link}" target="_blank" style="color:var(--primary); font-weight:600; text-decoration:none;">Ver Producto ↗</a></td></tr>`;
+            html += `<tr>
+                <td style="color:${p.color}; font-weight:bold; letter-spacing: 0.02em;">${p.farmacia}</td>
+                <td style="font-weight: 500;">${p.nombre}</td>
+                <td style="font-weight:700; color: #10b981;">$${p.precio} CLP</td>
+                <td><a href="${p.link}" target="_blank" class="btn-premium" style="padding: 6px 12px; font-size: 0.85rem; display: inline-flex; text-decoration:none;">Ir a la web ↗</a></td>
+            </tr>`;
         });
         res.innerHTML = html + "</table>";
-    } catch { res.innerHTML = "<p style='color:red;'>El servidor de scraping no responde.</p>"; }
+    } catch { 
+        res.innerHTML = "<p style='color:var(--text-muted);'>El micro-framework de Flask en el puerto 8000 no responde.</p>"; 
+    } finally {
+        searchBtn.disabled = false;
+    }
 }
 
-// --- SISTEMA INTERACTIVO DE PRECIO HISTÓRICO ---
-
+// --- SISTEMA INTERACTIVO DE HISTORIAL RELACIONAL ---
 async function abrirHistorial(btn) {
     showSection('history', btn);
     await inicializarSelector();
@@ -113,7 +172,7 @@ async function inicializarSelector() {
         selector.innerHTML = '<option value="">-- Elige un medicamento --</option>';
         
         if(medicamentos.length === 0) {
-            selector.innerHTML = '<option value="">Sin registros todavía</option>';
+            selector.innerHTML = '<option value="">Sin registros en SQLite</option>';
             return;
         }
 
@@ -124,7 +183,7 @@ async function inicializarSelector() {
             selector.appendChild(opt);
         });
     } catch (e) {
-        console.error("Error cargando selector:", e);
+        console.error("Error cargando selector relacional:", e);
     }
 }
 
@@ -138,7 +197,7 @@ async function cargarHistorialFiltrado() {
         
         if (data.length === 0) return;
 
-        // Eje X: Marcas de tiempo formateadas (Extraemos solo Hora y Minutos hh:mm)
+        // Extraemos marcas de tiempo unívocas (Muestreos de Hora y Minutos hh:mm)
         const etiquetasFechas = [...new Set(data.map(row => row[4].substring(11, 16)))];
 
         let preciosAhumada = [];
@@ -155,6 +214,7 @@ async function cargarHistorialFiltrado() {
             preciosSalcobrand.push(regSalcobrand ? regSalcobrand[3] : null);
         });
 
+        // Aplicación estricta del patrón Singleton: destruimos el objeto gráfico previo para liberar la pila de renderizado
         if (miGrafico) { miGrafico.destroy(); }
 
         const ctx = document.getElementById('historyChart').getContext('2d');
@@ -165,34 +225,37 @@ async function cargarHistorialFiltrado() {
             data: {
                 labels: etiquetasFechas,
                 datasets: [
-                    { label: 'Ahumada', data: preciosAhumada, borderColor: '#003399', backgroundColor: '#003399', tension: 0.2, spanGaps: true, pointRadius: 4 },
-                    { label: 'Dr. Simi', data: preciosSimi, borderColor: '#ce000c', backgroundColor: '#ce000c', tension: 0.2, spanGaps: true, pointRadius: 4 },
-                    { label: 'Salcobrand', data: preciosSalcobrand, borderColor: '#ffd400', backgroundColor: '#ffd400', tension: 0.2, spanGaps: true, pointRadius: 4 }
+                    { label: 'Ahumada', data: preciosAhumada, borderColor: '#003399', backgroundColor: '#003399', tension: 0.2, spanGaps: true, pointRadius: 5, borderWidth: 3 },
+                    { label: 'Dr. Simi', data: preciosSimi, borderColor: '#ce000c', backgroundColor: '#ce000c', tension: 0.2, spanGaps: true, pointRadius: 5, borderWidth: 3 },
+                    { label: 'Salcobrand', data: preciosSalcobrand, borderColor: '#ffd400', backgroundColor: '#ffd400', tension: 0.2, spanGaps: true, pointRadius: 5, borderWidth: 3 }
                 ]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: { labels: { color: modoOscuroActivo ? '#f1f5f9' : '#1e293b', font: { weight: '600' } } }
+                    legend: { labels: { color: modoOscuroActivo ? '#f1f5f9' : '#1e293b', font: { family: 'Inter', weight: '600', size: 12 } } }
                 },
                 scales: {
                     x: { ticks: { color: modoOscuroActivo ? '#94a3b8' : '#64748b' }, grid: { color: modoOscuroActivo ? '#334155' : '#e2e8f0' } },
-                    y: { ticks: { color: modoOscuroActivo ? '#94a3b8' : '#64748b', callback: (v) => '$' + v }, grid: { color: modoOscuroActivo ? '#334155' : '#e2e8f0' } }
+                    y: { ticks: { color: modoOscuroActivo ? '#94a3b8' : '#64748b', callback: (v) => '$' + v + ' CLP' }, grid: { color: modoOscuroActivo ? '#334155' : '#e2e8f0' } }
                 }
             }
         });
     } catch (e) {
-        console.error("Error crítico al renderizar el gráfico:", e);
+        console.error("Error crítico en el render de Chart.js:", e);
     }
 }
 
-// MAPA
+// COMPONENTE DE GEOLOCALIZACIÓN CLÍNICA
 function actualizarMapa(tipo) {
     if(navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(p => {
             const lat = p.coords.latitude, lng = p.coords.longitude;
             document.getElementById('map-iframe').src = `https://maps.google.com/maps?q=${tipo}&ll=${lat},${lng}&z=14&output=embed`;
+        }, () => {
+            // Fallback UI si el usuario deniega los accesos de geolocalización (Usa coordenadas céntricas por defecto)
+            document.getElementById('map-iframe').src = `https://maps.google.com/maps?q=${tipo}&z=13&output=embed`;
         });
     }
 }
