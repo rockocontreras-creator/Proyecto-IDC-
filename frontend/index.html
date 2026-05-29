@@ -4,113 +4,172 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FarmaConnect Pro</title>
+    <!-- Tipografía Avanzada Inter Font -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Iconos de Vectorización Nítida -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Renderizador de Gráficos Analíticos -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Parseador de Markdown para Tablas de Mathew IA -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Conectores de Estilos Premium -->
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="app-container">
+    <div class="dashboard-layout">
+        <!-- Sidebar Lateral de Navegación -->
         <aside class="sidebar">
-            <h2 style="color:var(--primary); margin-bottom:30px;">FarmaConnect</h2>
-            <nav>
+            <div class="brand-container">
+                <i data-lucide="activity" class="brand-icon"></i>
+                <h2>FarmaConnect</h2>
+            </div>
+            <nav class="nav-menu">
                 <button class="nav-btn active" onclick="showSection('chat', this)">
-                    <i data-lucide="message-circle"></i> Mathew IA
+                    <i data-lucide="message-square"></i> Mathew IA
                 </button>
                 <button class="nav-btn" onclick="showSection('search', this)">
-                    <i data-lucide="search"></i> Comparador
+                    <i data-lucide="bar-chart-2"></i> Comparador
                 </button>
                 <button class="nav-btn" onclick="abrirHistorial(this)">
                     <i data-lucide="history"></i> Historial
                 </button>
                 <button class="nav-btn" onclick="showSection('map', this)">
-                    <i data-lucide="map-pin"></i> Mapa Salud
+                    <i data-lucide="map"></i> Mapa Salud
                 </button>
             </nav>
         </aside>
 
+        <!-- Contenedor Principal Dinámico de la SPA -->
         <main class="main-content">
-            <div style="display: flex; justify-content: flex-end; margin-bottom: 20px;">
-                <button id="theme-toggle" style="background:var(--card-bg); border:1px solid var(--border); padding:10px; border-radius:50%; cursor:pointer; color:var(--text-main);">
+            <!-- Barra Superior de Herramientas de Interfaz -->
+            <div class="top-bar">
+                <div class="system-status">
+                    <span class="status-indicator"></span>
+                    <p style="color: var(--text-muted); font-size: 0.85rem; font-weight: 500;">Servidor Local Activo (Puerto 8000)</p>
+                </div>
+                <button id="theme-toggle" class="theme-switcher-btn" title="Alternar Modo de Diseño">
                     <i data-lucide="moon" id="theme-icon"></i>
                 </button>
             </div>
 
+            <!-- SECCIÓN 1: ASISTENTE VIRTUAL MATHEW IA -->
             <div id="chat-section" class="content-section active-section">
-                <div class="panel-card chat-card">
-                    <h2>Asistente Virtual Mathew</h2>
-                    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 15px;">Adjunta tu receta médica o realiza consultas de salud.</p>
+                <div class="card-premium chat-card">
+                    <div class="section-header">
+                        <h2>Asistente Virtual Mathew</h2>
+                        <p>Adjunta tu receta médica en imagen o realiza consultas de salud clínica.</p>
+                    </div>
                     
-                    <div id="chat-box">
-                        <div class="msg-mathew">
-                            <b>Mathew:</b> ¡Hola! Bienvenido a FarmaConnect. ¿En qué puedo orientarte hoy?
+                    <!-- Caja de Conversación Interactiva -->
+                    <div id="chat-box" class="chat-container">
+                        <div class="message message-mathew">
+                            <p>¡Hola! Bienvenido a <strong>FarmaConnect</strong>. ¿En qué malestar o síntoma común puedo orientarte hoy?</p>
                         </div>
                     </div>
                     
-                    <div class="chat-input-container">
-                        <div class="input-wrapper">
-                            <label for="file-input" class="file-label" title="Subir receta médica">
+                    <!-- Barra de Entrada y Acciones de Archivos -->
+                    <div class="chat-input-wrapper">
+                        <div class="input-group">
+                            <label for="file-input" class="file-label-btn" title="Adjuntar imagen de receta médica (Groq Vision OCR)">
                                 <i data-lucide="paperclip"></i>
                             </label>
                             <input type="file" id="file-input" accept="image/*" style="display:none;" onchange="previewFile()">
                             
-                            <input type="text" id="chat-input" placeholder="Escribe tu consulta aquí..." onkeypress="if(event.key === 'Enter') enviarMensaje()">
-                            <button class="btn-primary" onclick="enviarMensaje()">
-                                <i data-lucide="send" size="16"></i>
+                            <input type="text" id="chat-input" class="input-premium" placeholder="Escribe tu síntoma o consulta aquí..." onkeypress="if(event.key === 'Enter') enviarMensaje()">
+                            
+                            <button class="btn-premium" onclick="enviarMensaje()">
+                                <i data-lucide="send"></i>
                             </button>
                         </div>
-                        <div id="file-preview-container" style="display:none; align-items:center; margin-top:8px; background:var(--bg-main); padding:6px 12px; border-radius:6px;">
-                            <span id="file-preview-name" style="font-size:0.85rem; color:var(--text-main);"></span>
-                            <button onclick="clearFile()" style="background:none; border:none; color:#ef4444; cursor:pointer; margin-left:10px; font-weight:bold;">✕</button>
+                        
+                        <!-- Miniatura de Previsualización de Flujos Binarios -->
+                        <div id="file-preview-container" class="file-preview-badge" style="display:none;">
+                            <i data-lucide="image" size="14" style="color: var(--primary);"></i>
+                            <span id="file-preview-name"></span>
+                            <button onclick="clearFile()" class="clear-file-btn">✕</button>
                         </div>
-                        <p class="med-warning">
-                            ⚠️ Los análisis de IA no reemplazan el diagnóstico de un médico. Consulte a su profesional de la salud.
-                        </p>
+                        
+                        <!-- Alerta de Contención y Mitigación de Riesgos Médicos -->
+                        <div class="legal-warning">
+                            ⚠️ Los análisis automatizados por Inteligencia Artificial no reemplazan el diagnóstico de un médico. Consulte siempre a su profesional de la salud.
+                        </div>
                     </div>
                 </div>
             </div>
 
+            <!-- SECCIÓN 2: COMPARADOR CONCURRENTE MULTIHILO -->
             <div id="search-section" class="content-section">
-                <div class="panel-card">
-                    <h2>Comparador de Precios en Tiempo Real</h2>
-                    <div style="display:flex; gap:10px; margin-top:20px; background:var(--bg-main); padding:10px; border-radius:12px; border:1px solid var(--border);">
-                        <input type="text" id="manual-search" placeholder="Ej: Paracetamol o Ibuprofeno" style="flex:1; background:transparent; border:none; color:var(--text-main); outline:none; padding-left:10px;">
-                        <button class="btn-primary" onclick="startScraping()">Comparar</button>
+                <div class="card-premium">
+                    <div class="section-header">
+                        <h2>Comparador de Precios en Tiempo Real</h2>
+                        <p>El sistema ejecutará consultas en paralelo sobre los e-commerce farmacéuticos de Chile.</p>
                     </div>
-                    <div id="scraping-results" style="margin-top:20px;"></div>
+                    
+                    <div class="search-bar-box">
+                        <i data-lucide="search" class="search-bar-icon"></i>
+                        <input type="text" id="manual-search" class="input-premium inline-search" placeholder="Escribe el nombre del medicamento (Ej: Tapsin, Paracetamol)">
+                        <button class="btn-premium" onclick="startScraping()">
+                            <i data-lucide="play"></i> Comparar
+                        </button>
+                    </div>
+                    
+                    <!-- Contenedor Dinámico para Tarjetas de Resultados o Spinner -->
+                    <div id="scraping-results" class="results-layout-grid"></div>
                 </div>
             </div>
 
+            <!-- SECCIÓN 3: HISTORIAL CRONOLÓGICO DE PRECIOS -->
             <div id="history-section" class="content-section">
-                <div class="panel-card">
-                    <h2>Evolución de Precio Histórico</h2>
-                    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 20px;">Elige un medicamento guardado para auditar los cambios de valor en el tiempo.</p>
+                <div class="card-premium">
+                    <div class="section-header">
+                        <h2>Evolución de Precio Histórico</h2>
+                        <p>Elige un medicamento indexado en la base de datos relacional para auditar las fluctuaciones del mercado.</p>
+                    </div>
                     
-                    <div style="margin-bottom: 25px; display:flex; align-items:center; gap:10px;">
-                        <label for="med-selector" style="font-weight: 600; font-size: 0.95rem;">Seleccionar Producto:</label>
-                        <select id="med-selector" onchange="cargarHistorialFiltrado()" style="padding: 10px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--card-bg); color: var(--text-main); font-weight: 600; outline: none; cursor: pointer; min-width: 220px;">
-                            <option value="">-- Buscando Base de Datos --</option>
+                    <div class="selector-control-box">
+                        <label for="med-selector">Producto en Registro:</label>
+                        <select id="med-selector" class="input-premium select-premium" onchange="cargarHistorialFiltrado()">
+                            <option value="">-- Escaneando Catálogo SQLite 3FN --</option>
                         </select>
                     </div>
                     
-                    <div class="chart-container" style="position: relative; height:380px; width:100%; background: var(--bg-main); padding:15px; border-radius:12px; border:1px solid var(--border);">
+                    <!-- Canvas Envolvente para Trazado Cronológico (Chart.js) -->
+                    <div class="chart-wrapper-box">
                         <canvas id="historyChart"></canvas>
                     </div>
                 </div>
             </div>
 
+            <!-- SECCIÓN 4: GEOLOCALIZACIÓN CLÍNICA -->
             <div id="map-section" class="content-section">
-                <div class="panel-card">
-                    <h2>Sucursales Cercanas</h2>
-                    <div style="display:flex; gap:10px; margin-bottom:15px; margin-top:15px;">
-                        <button class="btn-primary" style="flex:1" onclick="actualizarMapa('hospitales')">Centros Médicos</button>
-                        <button class="btn-primary" style="flex:1; background:#64748b" onclick="actualizarMapa('farmacias')">Farmacias</button>
+                <div class="card-premium">
+                    <div class="section-header">
+                        <h2>Sucursales Cercanas de Atención</h2>
+                        <p>Capture sus coordenadas espaciales automáticas para mapear los establecimientos de salud más próximos.</p>
                     </div>
-                    <iframe id="map-iframe" width="100%" height="450" frameborder="0" src="about:blank" style="border-radius:12px; border:1px solid var(--border);"></iframe>
+                    
+                    <div class="map-action-tabs">
+                        <button class="btn-premium btn-tab-map" onclick="actualizarMapa('hospitales')">
+                            <i data-lucide="heart-pulse"></i> Centros Médicos
+                        </button>
+                        <button class="btn-premium btn-tab-map btn-tab-secondary" onclick="actualizarMapa('farmacias')">
+                            <i data-lucide="map-pin"></i> Cadenas de Farmacias
+                        </button>
+                    </div>
+                    
+                    <!-- Marco de Incrustación de Mapas Enmascarados -->
+                    <div class="map-frame-wrapper">
+                        <iframe id="map-iframe" width="100%" height="480" frameborder="0" src="about:blank" allowfullscreen></iframe>
+                    </div>
                 </div>
             </div>
         </main>
     </div>
+    <!-- Script de Inicialización de Iconos y Rutas de Lógica del Cliente -->
     <script src="script.js"></script>
+    <script>
+        // Inicializar los iconos vectoriales cargados dinámicamente
+        lucide.createIcons();
+    </script>
 </body>
 </html>
