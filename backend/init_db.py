@@ -1,0 +1,65 @@
+import sqlite3
+
+def inicializar_nuevo_esquema():
+    conn = sqlite3.connect('farmacia.db')
+    cursor = conn.cursor()
+    
+    print("Eliminando tablas antiguas para evitar colisiones...")
+    cursor.execute("DROP TABLE IF EXISTS historial")
+    cursor.execute("DROP TABLE IF EXISTS farmacias")
+    cursor.execute("DROP TABLE IF EXISTS medicamentos")
+    cursor.execute("DROP TABLE IF EXISTS usuarios")
+    
+    print("Creando nuevas tablas maestras unificadas...")
+    # 1. Tabla farmacias
+    cursor.execute('''CREATE TABLE farmacias (
+                        id_farmacias INTEGER PRIMARY KEY AUTOINCREMENT,
+                        nombre_farmacia TEXT NOT NULL UNIQUE,
+                        color_distintivo TEXT NOT NULL
+                    )''')
+    
+    # 2. Tabla medicamentos
+    cursor.execute('''CREATE TABLE medicamentos (
+                        id_medicamento INTEGER PRIMARY KEY AUTOINCREMENT,
+                        nombre_buscado TEXT NOT NULL UNIQUE,
+                        requiere_receta INTEGER DEFAULT 0
+                    )''')
+    
+    # 3. Tabla usuarios
+    cursor.execute('''CREATE TABLE usuarios (
+                        id_usuario INTEGER PRIMARY KEY AUTOINCREMENT,
+                        nombre TEXT NOT NULL,
+                        correo TEXT NOT NULL UNIQUE,
+                        contraseña TEXT NOT NULL
+                    )''')
+    
+    print("Creando tabla transaccional central con llaves foráneas...")
+    # 4. Tabla historial central
+    cursor.execute('''CREATE TABLE historial (
+                        id_historial INTEGER PRIMARY KEY AUTOINCREMENT,
+                        id_farmacia INTEGER NOT NULL,
+                        id_medicamento INTEGER NOT NULL,
+                        id_usuario INTEGER,
+                        precio INTEGER NOT NULL,
+                        nombre_especifico TEXT NOT NULL,
+                        link_producto TEXT,
+                        fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (id_farmacia) REFERENCES farmacias (id_farmacias) ON DELETE CASCADE,
+                        FOREIGN KEY (id_medicamento) REFERENCES medicamentos (id_medicamento) ON DELETE CASCADE,
+                        FOREIGN KEY (id_usuario) REFERENCES usuarios (id_usuario) ON DELETE SET NULL
+                    )''')
+    
+    print("Poblando datos constantes de las cadenas farmacéuticas...")
+    farmacias_data = [
+        (1, 'Ahumada', '#003399'), 
+        (2, 'Dr. Simi', '#ce000c'), 
+        (3, 'Salcobrand', '#ffd400')
+    ]
+    cursor.executemany("INSERT INTO farmacias (id_farmacias, nombre_farmacia, color_distintivo) VALUES (?,?,?)", farmacias_data)
+    
+    conn.commit()
+    conn.close()
+    print("¡Base de datos armada y sincronizada con éxito según el nuevo diagrama!")
+
+if __name__ == '__main__':
+    inicializar_nuevo_esquema()
