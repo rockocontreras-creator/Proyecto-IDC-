@@ -11,6 +11,7 @@ import threading
 import sqlite3
 import hashlib
 import secrets
+import time
 import os
 from groq import Groq
 
@@ -21,6 +22,13 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 client = Groq(api_key="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")
 
 APP_SECRET = 'farmaconnect_dev_secret_2024'
+
+# =========================================================
+# CONFIGURACIÓN DE SCRAPING
+# Pon HEADLESS = False para ver las ventanas de Chrome (útil para depurar
+# y para saltarse anti-bots agresivos como el de Salcobrand).
+# =========================================================
+HEADLESS = True
 
 # =========================================================
 # TOKENS EN MEMORIA (reemplaza flask.session — sin cookies)
@@ -75,7 +83,12 @@ def init_db():
                         FOREIGN KEY(id_farmacia) REFERENCES farmacias(id_farmacias) ON DELETE CASCADE,
                         FOREIGN KEY(id_medicamento) REFERENCES medicamentos(id_medicamento) ON DELETE CASCADE,
                         FOREIGN KEY(id_usuario) REFERENCES usuarios(id_usuario) ON DELETE SET NULL)''')
-    farmacias_data = [(1, 'Ahumada', '#003399'), (2, 'Dr. Simi', '#ce000c'), (3, 'Salcobrand', '#ffd400')]
+    farmacias_data = [
+        (1, 'Ahumada', '#003399'),
+        (2, 'Dr. Simi', '#ce000c'),
+        (3, 'Salcobrand', '#ffd400'),
+        (4, 'Cruz Verde', '#009639'),
+    ]
     cursor.executemany("INSERT OR IGNORE INTO farmacias (id_farmacias, nombre_farmacia, color_distintivo) VALUES (?,?,?)", farmacias_data)
     conn.commit()
     conn.close()
@@ -184,6 +197,16 @@ def guardar_busqueda(remedio, resultados, user_id=None):
             if precio_limpio:
                 precio_int = int(precio_limpio)
                 r['precio'] = f"{precio_int:,}".replace(",", ".")
+
+                # Formatear también el precio original (tachado) si viene en oferta
+                if r.get('precio_original'):
+                    orig_limpio = "".join(filter(str.isdigit, str(r['precio_original'])))
+                    if orig_limpio:
+                        r['precio_original'] = f"{int(orig_limpio):,}".replace(",", ".")
+                    else:
+                        r['precio_original'] = None
+                        r['oferta'] = False
+
                 cursor.execute(
                     '''INSERT INTO historial (id_farmacia, id_medicamento, id_usuario, precio, nombre_especifico, link_producto)
                        VALUES (?,?,?,?,?,?)''',
@@ -197,51 +220,166 @@ def guardar_busqueda(remedio, resultados, user_id=None):
 
 def get_driver():
     opts = Options()
-    opts.add_argument("--headless=new")           # nuevo modo headless más estable
+    if HEADLESS:
+        opts.add_argument("--headless")           # headless clásico (el que funcionaba con 3 farmacias)
     opts.add_argument("--disable-gpu")
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
     opts.add_argument("--disable-extensions")
-    opts.add_argument("--disable-software-rasterizer")
-    opts.add_argument("--disable-background-networking")
-    opts.add_argument("--disable-default-apps")
-    opts.add_argument("--disable-sync")
-    opts.add_argument("--no-first-run")
     opts.add_argument("--blink-settings=imagesEnabled=false")
     opts.add_argument("--window-size=1280,800")
-    opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36")
-    prefs = {
-        "profile.managed_default_content_settings.images": 2,
-        "profile.managed_default_content_settings.stylesheets": 2,  # bloquea CSS → más rápido
-    }
+    # Anti-detección (no interfiere con la carga; solo ayuda con anti-bots)
+    opts.add_argument("--disable-blink-features=AutomationControlled")
+    opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+    prefs = {"profile.managed_default_content_settings.images": 2}
     opts.add_experimental_option("prefs", prefs)
     opts.add_experimental_option("excludeSwitches", ["enable-automation"])
-    service = Service(ChromeDriverManager().install(), log_output=os.devnull)  # silencia logs de chromedriver
+    service = Service(ChromeDriverManager().install(), log_output=os.devnull)
     driver = webdriver.Chrome(service=service, options=opts)
-    driver.set_page_load_timeout(12)   # reducido de 20 → 12s
+    driver.set_page_load_timeout(20)   # restaurado al valor original (20s)
+    try:
+        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+            "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+        })
+    except Exception:
+        pass
     return driver
 
 
 def scrape_task(func, remedio, res_list):
-    driver = None
+    """Ejecuta el scraper de una farmacia. Si no devuelve nada, reintenta UNA vez
+       (las SPAs anti-bot a veces fallan la primera carga y funcionan en la segunda)."""
+    nombre_farmacia = func.__name__.replace("logic_", "").capitalize()
+    antes = len(res_list)
+    for intento in (1, 2):
+        driver = None
+        try:
+            driver = get_driver()
+            func(remedio, driver, res_list)
+        except Exception as e:
+            print(f"Error en hilo de raspado ({nombre_farmacia}, intento {intento}): {e}")
+        finally:
+            if driver:
+                try: driver.quit()
+                except Exception: pass
+        if len(res_list) > antes:   # ya obtuvo resultado → no reintentar
+            break
+
+
+def _cargar(driver, url):
+    """Navega a la URL; si supera el page_load_timeout corta la carga y sigue
+       con lo que ya esté en el DOM (las farmacias son SPAs muy pesadas)."""
     try:
-        driver = get_driver()
-        func(remedio, driver, res_list)
-    except Exception as e:
-        print(f"Error en hilo de raspado: {e}")
-    finally:
-        if driver:
-            driver.quit()
+        driver.get(url)
+    except Exception:
+        driver.execute_script("window.stop();")
+
+
+# Extractor genérico LIVIANO: busca solo entre elementos con clase tipo 'price'/'precio'
+# (conjunto acotado) para no congelar el renderer en páginas pesadas.
+_JS_EXTRACTOR_GENERICO = r"""
+    const priceRe = /\$\s?\d{1,3}(?:[.,]\d{3})+/;
+    const parse = t => parseInt(String(t).replace(/\D/g, ''), 10) || 0;
+
+    // Conjunto ACOTADO de posibles nodos de precio (no recorremos todo el DOM)
+    let priceEls = Array.from(
+        document.querySelectorAll("[class*='price'],[class*='Price'],[class*='precio'],[class*='Precio'],[class*='amount']")
+    ).filter(el => {
+        const t = (el.innerText || '').trim();
+        return priceRe.test(t) && parse(t.match(priceRe)[0]) >= 100;
+    });
+    if (priceEls.length === 0) return null;
+
+    // Subir hasta un contenedor que tenga un enlace
+    function contenedor(node) {
+        let cur = node;
+        for (let i = 0; i < 6 && cur; i++) {
+            if (cur.querySelector && cur.querySelector('a[href]')) return cur;
+            cur = cur.parentElement;
+        }
+        return node.parentElement || node;
+    }
+
+    // Ordenar por precio ascendente y tomar el primero válido
+    let items = priceEls.map(el => ({ el, val: parse((el.innerText.match(priceRe) || ['0'])[0]) }))
+                        .filter(x => x.val > 0)
+                        .sort((a, b) => a.val - b.val);
+
+    for (const it of items) {
+        const cont = contenedor(it.el);
+        const link = cont.querySelector('a[href]');
+        if (!link) continue;
+
+        // Nombre: título del enlace, su texto, o el texto más largo no-precio del contenedor (acotado a hijos directos-ish)
+        let nombre = (link.getAttribute('title') || '').trim();
+        if (!nombre) nombre = (link.innerText || '').trim().split('\n')[0];
+        if (!nombre) {
+            const cand = Array.from(cont.querySelectorAll('h2,h3,h4,[class*="name"],[class*="Name"],[class*="title"],[class*="brand"]'))
+                .map(n => (n.innerText || '').trim())
+                .filter(t => t && !priceRe.test(t) && t.length < 120)
+                .sort((a, b) => b.length - a.length);
+            if (cand.length) nombre = cand[0];
+        }
+        if (!nombre || nombre.length > 140) continue;
+
+        // Precio original (oferta): un precio MAYOR dentro del mismo contenedor
+        let original = null;
+        cont.querySelectorAll("[class*='price'],[class*='Price'],s,del,strike").forEach(n => {
+            const m = (n.innerText || '').trim().match(priceRe);
+            if (m && parse(m[0]) > it.val) {
+                if (!original || parse(m[0]) > parse(original)) original = m[0];
+            }
+        });
+
+        return { n: nombre, pr: '$' + it.val.toLocaleString('es-CL'), l: link.href, orig: original };
+    }
+    return null;
+"""
+
+
+def _extraer_generico(driver):
+    try:
+        return driver.execute_script("return (function(){" + _JS_EXTRACTOR_GENERICO + "})();")
+    except Exception:
+        return None
+
 
 
 def logic_ahumada(remedio, driver, res):
     try:
         driver.get(f"https://www.farmaciasahumada.cl/search?q={remedio}&srule=price-low-to-high&sz=1")
         WebDriverWait(driver, 8).until(EC.presence_of_element_located((By.CLASS_NAME, "price")))
-        nom = driver.find_element(By.CLASS_NAME, "pdp-link").text.strip()
-        pre = driver.find_element(By.CLASS_NAME, "price").get_attribute("innerText").split('\n')[0].strip()
-        lnk = driver.find_element(By.CLASS_NAME, "pdp-link").find_element(By.TAG_NAME, "a").get_attribute("href")
-        res.append({"farmacia": "Ahumada", "nombre": nom, "precio": pre, "link": lnk, "color": "#003399"})
+        d = driver.execute_script("""
+            let nomEl = document.querySelector('.pdp-link');
+            let priceWrap = document.querySelector('.price');
+            if(!nomEl || !priceWrap) return null;
+            let linkEl = nomEl.querySelector('a');
+            // En Salesforce Commerce: .sales = precio actual, .strike-through = precio anterior
+            let salesEl  = priceWrap.querySelector('.sales .value, .sales');
+            let strikeEl = priceWrap.querySelector('.strike-through .value, .strike-through, del');
+            let actual   = salesEl ? salesEl.innerText.trim() : priceWrap.innerText.split('\\n')[0].trim();
+            let original = strikeEl ? strikeEl.innerText.trim() : null;
+            return {
+                n: nomEl.innerText.trim(),
+                pr: actual,
+                l: linkEl ? linkEl.href : window.location.href,
+                orig: original
+            };
+        """)
+        if d and d['n'] and d['pr']:
+            res.append({
+                "farmacia": "Ahumada", "nombre": d['n'], "precio": d['pr'], "link": d['l'],
+                "color": "#003399",
+                "oferta": bool(d['orig']),
+                "precio_original": d['orig']
+            })
+        else:
+            g = _extraer_generico(driver)
+            if g and g['n'] and g['pr']:
+                res.append({
+                    "farmacia": "Ahumada", "nombre": g['n'], "precio": g['pr'], "link": g['l'],
+                    "color": "#003399", "oferta": bool(g['orig']), "precio_original": g['orig']
+                })
     except Exception as e:
         print(f"Error Ahumada: {e}")
 
@@ -255,10 +393,37 @@ def logic_drsimi(remedio, driver, res):
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "[class*='brandName'], [class*='productBrand']"))
         )
-        nom = driver.find_element(By.CSS_SELECTOR, "[class*='brandName'], [class*='productBrand']").text.strip()
-        pre = driver.find_element(By.CSS_SELECTOR, "[class*='currencyContainer'], [class*='sellingPrice']").get_attribute("innerText").strip()
-        lnk = driver.find_element(By.CSS_SELECTOR, "a[class*='clearLink'], a[class*='product-summary']").get_attribute("href")
-        res.append({"farmacia": "Dr. Simi", "nombre": nom, "precio": pre, "link": lnk, "color": "#ce000c"})
+        d = driver.execute_script("""
+            let nomEl = document.querySelector("[class*='brandName'], [class*='productBrand']");
+            let sellEl = document.querySelector("[class*='sellingPrice']") || document.querySelector("[class*='currencyContainer']");
+            let listEl = document.querySelector("[class*='listPrice']");
+            let linkEl = document.querySelector("a[class*='clearLink'], a[class*='product-summary']");
+            if(!nomEl || !sellEl) return null;
+            let actual = sellEl.innerText.trim();
+            let original = listEl ? listEl.innerText.trim() : null;
+            // Solo es oferta si el precio lista difiere del precio actual
+            let esOferta = original && original.replace(/\\D/g,'') !== actual.replace(/\\D/g,'') && original.replace(/\\D/g,'') !== '';
+            return {
+                n: nomEl.innerText.trim(),
+                pr: actual,
+                l: linkEl ? linkEl.href : window.location.href,
+                orig: esOferta ? original : null
+            };
+        """)
+        if d and d['n'] and d['pr']:
+            res.append({
+                "farmacia": "Dr. Simi", "nombre": d['n'], "precio": d['pr'], "link": d['l'],
+                "color": "#ce000c",
+                "oferta": bool(d['orig']),
+                "precio_original": d['orig']
+            })
+        else:
+            g = _extraer_generico(driver)
+            if g and g['n'] and g['pr']:
+                res.append({
+                    "farmacia": "Dr. Simi", "nombre": g['n'], "precio": g['pr'], "link": g['l'],
+                    "color": "#ce000c", "oferta": bool(g['orig']), "precio_original": g['orig']
+                })
     except Exception as e:
         print(f"Error Dr. Simi: {e}")
 
@@ -266,22 +431,113 @@ def logic_drsimi(remedio, driver, res):
 def logic_salcobrand(remedio, driver, res):
     try:
         driver.get(f"https://salcobrand.cl/search_result?query={remedio}&sort=price_asc")
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, ".product, .product-info, .product-card"))
-        )
+        # Espera NO fatal: si se agota (carga lenta), igual seguimos e intentamos extraer
+        try:
+            WebDriverWait(driver, 12).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, ".product, .product-info, .product-card"))
+            )
+        except Exception:
+            pass
+        time.sleep(1.5)  # margen para que terminen de renderizar los precios
+
         d = driver.execute_script("""
             let p = document.querySelector('.product-info') || document.querySelector('.product-card') || document.querySelector('.product');
             if(!p) return null;
             let c = p.closest('.product') || p;
+            // precio actual (no old-price) + precio anterior tachado (old-price) para detectar oferta
             let priceElem = c.querySelector('.price:not(.old-price)') || c.querySelector('.price') || c.querySelector('[class*="price"]');
-            let linkElem = c.querySelector('a');
+            let oldElem   = c.querySelector('.old-price');
+            let linkElem  = c.querySelector('a');
             if(!priceElem || !linkElem) return null;
-            return { n: p.innerText.split('\\n')[0].trim(), pr: priceElem.innerText.trim(), l: linkElem.href };
+            let original = oldElem ? oldElem.innerText.trim() : null;
+            return {
+                n: p.innerText.split('\\n')[0].trim(),
+                pr: priceElem.innerText.trim(),
+                l: linkElem.href,
+                orig: (original && original.replace(/\\D/g,'') !== '') ? original : null
+            };
         """)
         if d and d['n'] and d['pr']:
-            res.append({"farmacia": "Salcobrand", "nombre": d['n'], "precio": d['pr'], "link": d['l'], "color": "#ffd400"})
+            res.append({
+                "farmacia": "Salcobrand", "nombre": d['n'], "precio": d['pr'], "link": d['l'],
+                "color": "#ffd400",
+                "oferta": bool(d['orig']),
+                "precio_original": d['orig']
+            })
+        else:
+            # Respaldo: extractor genérico de precios CLP
+            g = _extraer_generico(driver)
+            if g and g['n'] and g['pr']:
+                res.append({
+                    "farmacia": "Salcobrand", "nombre": g['n'], "precio": g['pr'], "link": g['l'],
+                    "color": "#ffd400",
+                    "oferta": bool(g['orig']),
+                    "precio_original": g['orig']
+                })
     except Exception as e:
         print(f"Error Salcobrand: {e}")
+
+
+def logic_cruzverde(remedio, driver, res):
+    try:
+        driver.get(f"https://www.cruzverde.cl/search?query={remedio}")
+        # Esperamos a que aparezca un enlace de producto o un precio (lo que llegue primero)
+        try:
+            WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((
+                    By.CSS_SELECTOR,
+                    "a[href*='/product/'], [class*='product-tile'], [class*='price']"
+                ))
+            )
+        except Exception:
+            pass
+        # Pausa breve: Cruz Verde carga los PRECIOS por XHR un instante después del producto
+        time.sleep(2.5)
+
+        # Método principal: extractor genérico (robusto, busca cualquier precio CLP)
+        g = _extraer_generico(driver)
+        if g and g['n'] and g['pr']:
+            res.append({
+                "farmacia": "Cruz Verde", "nombre": g['n'], "precio": g['pr'], "link": g['l'],
+                "color": "#009639",
+                "oferta": bool(g['orig']),
+                "precio_original": g['orig']
+            })
+            return
+
+        # Respaldo: selectores específicos de tarjeta de producto
+        d = driver.execute_script("""
+            let card = document.querySelector("[class*='product-tile']") ||
+                       document.querySelector("[class*='product-card']") ||
+                       document.querySelector("[class*='ProductCard']") ||
+                       document.querySelector("a[href*='/product/']");
+            if(!card) return null;
+            let cont = card.closest("[class*='product-tile'], [class*='product-card'], [class*='ProductCard'], li, article") || card;
+            let nomEl = cont.querySelector("[class*='product-name'], [class*='ProductName'], [class*='name'] a, a[href*='/product/'], h2, h3");
+            let linkEl = cont.querySelector("a[href*='/product/']") || cont.querySelector("a");
+            let priceNodes = Array.from(cont.querySelectorAll("[class*='price'], [class*='Price']"))
+                .map(e => e.innerText.trim()).filter(t => /\\$\\s?\\d/.test(t));
+            let parse = t => parseInt(t.replace(/\\D/g,''), 10) || 0;
+            let actual = null, original = null;
+            if (priceNodes.length >= 2) {
+                let nums = priceNodes.map(parse).filter(n => n > 0).sort((a,b)=>a-b);
+                actual = '$' + nums[0].toLocaleString('es-CL');
+                if (nums[nums.length-1] !== nums[0]) original = '$' + nums[nums.length-1].toLocaleString('es-CL');
+            } else if (priceNodes.length === 1) {
+                actual = priceNodes[0];
+            }
+            if(!nomEl || !actual) return null;
+            return { n: nomEl.innerText.trim(), pr: actual, l: linkEl ? linkEl.href : window.location.href, orig: original };
+        """)
+        if d and d['n'] and d['pr']:
+            res.append({
+                "farmacia": "Cruz Verde", "nombre": d['n'], "precio": d['pr'], "link": d['l'],
+                "color": "#009639",
+                "oferta": bool(d['orig']),
+                "precio_original": d['orig']
+            })
+    except Exception as e:
+        print(f"Error Cruz Verde: {e}")
 
 
 @app.route('/scraping_manual', methods=['POST'])
@@ -299,7 +555,8 @@ def scraping_manual():
     threads = [
         threading.Thread(target=scrape_task, args=(logic_ahumada, remedio, res)),
         threading.Thread(target=scrape_task, args=(logic_drsimi, remedio, res)),
-        threading.Thread(target=scrape_task, args=(logic_salcobrand, remedio, res))
+        threading.Thread(target=scrape_task, args=(logic_salcobrand, remedio, res)),
+        threading.Thread(target=scrape_task, args=(logic_cruzverde, remedio, res))
     ]
     for t in threads: t.start()
     for t in threads: t.join()
