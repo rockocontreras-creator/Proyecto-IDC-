@@ -328,16 +328,68 @@ async function startScraping() {
             return;
         }
 
-        let html = "<table><tr><th>Farmacia</th><th>Producto Encontrado</th><th>Precio Registrado</th><th>Acción Comercial</th></tr>";
+        // Detectar el precio más bajo para destacarlo
+        let menorPrecio = Infinity;
         data.precios.forEach(p => {
-            html += `<tr>
-                <td style="color:${p.color};font-weight:bold;">${p.farmacia}</td>
-                <td style="font-weight:500;">${p.nombre}</td>
-                <td style="font-weight:700;color:#10b981;">$${p.precio} CLP</td>
-                <td><a href="${p.link}" target="_blank" class="btn-premium" style="padding:6px 12px;font-size:0.85rem;display:inline-flex;text-decoration:none;">Ir a la web ↗</a></td>
+            const val = parseInt(String(p.precio).replace(/\D/g, ''), 10);
+            if (!isNaN(val) && val < menorPrecio) menorPrecio = val;
+        });
+
+        // Ordenar: más barato primero
+        const ordenados = [...data.precios].sort((a, b) => {
+            const va = parseInt(String(a.precio).replace(/\D/g, ''), 10) || Infinity;
+            const vb = parseInt(String(b.precio).replace(/\D/g, ''), 10) || Infinity;
+            return va - vb;
+        });
+
+        let html = `<div class="results-table-wrapper">
+            <table class="results-table">
+                <thead>
+                    <tr>
+                        <th>Farmacia</th>
+                        <th>Producto encontrado</th>
+                        <th>Precio</th>
+                        <th>Estado</th>
+                        <th style="text-align:right;">Acción</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+        ordenados.forEach(p => {
+            const val = parseInt(String(p.precio).replace(/\D/g, ''), 10);
+            const esMasBarato = val === menorPrecio;
+            const iniciales = p.farmacia.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
+
+            // Celda de precio con original tachado si hay oferta
+            let celdaPrecio = `<span class="precio-actual">$${p.precio}</span><span class="precio-clp">CLP</span>`;
+            if (p.oferta && p.precio_original) {
+                celdaPrecio += `<br><span class="precio-original">$${p.precio_original}</span>`;
+            }
+
+            // Badges de estado
+            let badges = '';
+            if (esMasBarato) badges += `<span class="badge badge-barato">💰 Más barato</span>`;
+            if (p.oferta)    badges += `<span class="badge badge-oferta">🏷️ En oferta</span>`;
+            if (!badges) badges = `<span class="badge badge-normal">Precio normal</span>`;
+
+            html += `<tr${esMasBarato ? ' class="row-barato"' : ''}>
+                <td>
+                    <div class="farmacia-cell">
+                        <div class="farmacia-avatar" style="background:${p.color};">${iniciales}</div>
+                        <span class="farmacia-nombre" style="color:${p.color};">${p.farmacia}</span>
+                    </div>
+                </td>
+                <td><span class="producto-nombre">${p.nombre}</span></td>
+                <td class="precio-cell">${celdaPrecio}</td>
+                <td><div class="badges-cell">${badges}</div></td>
+                <td style="text-align:right;">
+                    <a href="${p.link}" target="_blank" class="btn-ir-web">Ir a la web <span>↗</span></a>
+                </td>
             </tr>`;
         });
-        res.innerHTML = html + "</table>";
+
+        html += `</tbody></table></div>`;
+        res.innerHTML = html;
     } catch {
         res.innerHTML = "<p style='color:var(--text-muted);'>El servidor Flask en el puerto 8000 no responde.</p>";
     } finally {
@@ -391,15 +443,17 @@ async function cargarHistorialFiltrado() {
         if (data.length === 0) return;
 
         const etiquetasFechas = [...new Set(data.map(row => row[4].substring(11, 16)))];
-        let preciosAhumada = [], preciosSimi = [], preciosSalcobrand = [];
+        let preciosAhumada = [], preciosSimi = [], preciosSalcobrand = [], preciosCruzVerde = [];
 
         etiquetasFechas.forEach(f => {
             const rA = data.find(row => row[1] === "Ahumada"    && row[4].includes(f));
             const rS = data.find(row => row[1] === "Dr. Simi"   && row[4].includes(f));
             const rB = data.find(row => row[1] === "Salcobrand" && row[4].includes(f));
+            const rC = data.find(row => row[1] === "Cruz Verde" && row[4].includes(f));
             preciosAhumada.push(rA ? rA[3] : null);
             preciosSimi.push(rS ? rS[3] : null);
             preciosSalcobrand.push(rB ? rB[3] : null);
+            preciosCruzVerde.push(rC ? rC[3] : null);
         });
 
         if (miGrafico) miGrafico.destroy();
@@ -414,7 +468,8 @@ async function cargarHistorialFiltrado() {
                 datasets: [
                     { label: 'Ahumada',    data: preciosAhumada,    borderColor: '#003399', backgroundColor: '#003399', tension: 0.2, spanGaps: true, pointRadius: 5, borderWidth: 3 },
                     { label: 'Dr. Simi',   data: preciosSimi,       borderColor: '#ce000c', backgroundColor: '#ce000c', tension: 0.2, spanGaps: true, pointRadius: 5, borderWidth: 3 },
-                    { label: 'Salcobrand', data: preciosSalcobrand, borderColor: '#ffd400', backgroundColor: '#ffd400', tension: 0.2, spanGaps: true, pointRadius: 5, borderWidth: 3 }
+                    { label: 'Salcobrand', data: preciosSalcobrand, borderColor: '#ffd400', backgroundColor: '#ffd400', tension: 0.2, spanGaps: true, pointRadius: 5, borderWidth: 3 },
+                    { label: 'Cruz Verde', data: preciosCruzVerde,  borderColor: '#009639', backgroundColor: '#009639', tension: 0.2, spanGaps: true, pointRadius: 5, borderWidth: 3 }
                 ]
             },
             options: {
