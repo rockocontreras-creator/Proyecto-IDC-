@@ -4,20 +4,101 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FarmaConnect Pro</title>
-    <!-- Tipografía Avanzada Inter Font -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Iconos de Vectorización Nítida -->
     <script src="https://unpkg.com/lucide@latest"></script>
-    <!-- Renderizador de Gráficos Analíticos -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Parseador de Markdown para Tablas de Mathew IA -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <!-- Conectores de Estilos Premium -->
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="dashboard-layout">
-        <!-- Sidebar Lateral de Navegación -->
+
+    <!-- ========================================================= -->
+    <!-- PANTALLA DE AUTENTICACIÓN (cubre toda la app al inicio)   -->
+    <!-- ========================================================= -->
+    <div id="auth-overlay" class="auth-overlay">
+        <div class="auth-card">
+
+            <!-- Logo dentro del modal -->
+            <div class="auth-brand">
+                <i data-lucide="activity" class="auth-brand-icon"></i>
+                <span>FarmaConnect</span>
+            </div>
+
+            <!-- TABS Login / Registro -->
+            <div class="auth-tabs">
+                <button class="auth-tab active" id="tab-login" onclick="switchAuthTab('login')">Iniciar sesión</button>
+                <button class="auth-tab" id="tab-registro" onclick="switchAuthTab('registro')">Crear cuenta</button>
+            </div>
+
+            <!-- Mensaje de error/éxito -->
+            <div id="auth-alert" class="auth-alert" style="display:none;"></div>
+
+            <!-- FORMULARIO LOGIN -->
+            <div id="form-login" class="auth-form active-form">
+                <div class="auth-field">
+                    <label>Correo electrónico</label>
+                    <div class="auth-input-wrap">
+                        <i data-lucide="mail" class="auth-input-icon"></i>
+                        <input type="email" id="login-correo" placeholder="tu@correo.com" autocomplete="email">
+                    </div>
+                </div>
+                <div class="auth-field">
+                    <label>Contraseña</label>
+                    <div class="auth-input-wrap">
+                        <i data-lucide="lock" class="auth-input-icon"></i>
+                        <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password"
+                               onkeypress="if(event.key==='Enter') doLogin()">
+                        <button class="toggle-pw-btn" onclick="togglePw('login-password', this)" tabindex="-1">
+                            <i data-lucide="eye"></i>
+                        </button>
+                    </div>
+                </div>
+                <button class="auth-submit-btn" onclick="doLogin()" id="btn-login">
+                    <span>Entrar</span>
+                    <i data-lucide="arrow-right"></i>
+                </button>
+            </div>
+
+            <!-- FORMULARIO REGISTRO -->
+            <div id="form-registro" class="auth-form">
+                <div class="auth-field">
+                    <label>Nombre completo</label>
+                    <div class="auth-input-wrap">
+                        <i data-lucide="user" class="auth-input-icon"></i>
+                        <input type="text" id="reg-nombre" placeholder="Tu nombre" autocomplete="name">
+                    </div>
+                </div>
+                <div class="auth-field">
+                    <label>Correo electrónico</label>
+                    <div class="auth-input-wrap">
+                        <i data-lucide="mail" class="auth-input-icon"></i>
+                        <input type="email" id="reg-correo" placeholder="tu@correo.com" autocomplete="email">
+                    </div>
+                </div>
+                <div class="auth-field">
+                    <label>Contraseña <span class="auth-hint">(mín. 6 caracteres)</span></label>
+                    <div class="auth-input-wrap">
+                        <i data-lucide="lock" class="auth-input-icon"></i>
+                        <input type="password" id="reg-password" placeholder="••••••••" autocomplete="new-password"
+                               onkeypress="if(event.key==='Enter') doRegistro()">
+                        <button class="toggle-pw-btn" onclick="togglePw('reg-password', this)" tabindex="-1">
+                            <i data-lucide="eye"></i>
+                        </button>
+                    </div>
+                </div>
+                <button class="auth-submit-btn" onclick="doRegistro()" id="btn-registro">
+                    <span>Crear cuenta</span>
+                    <i data-lucide="user-plus"></i>
+                </button>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ========================================================= -->
+    <!-- APP PRINCIPAL                                             -->
+    <!-- ========================================================= -->
+    <div class="dashboard-layout" id="app-main" style="display:none;">
         <aside class="sidebar">
             <div class="brand-container">
                 <i data-lucide="activity" class="brand-icon"></i>
@@ -37,11 +118,21 @@
                     <i data-lucide="map"></i> Mapa Salud
                 </button>
             </nav>
+
+            <!-- Perfil de usuario en sidebar -->
+            <div class="sidebar-user-card" id="sidebar-user">
+                <div class="user-avatar" id="user-avatar-initials">?</div>
+                <div class="user-info">
+                    <p class="user-name" id="sidebar-user-name">—</p>
+                    <p class="user-email" id="sidebar-user-email">—</p>
+                </div>
+                <button class="logout-btn" onclick="doLogout()" title="Cerrar sesión">
+                    <i data-lucide="log-out"></i>
+                </button>
+            </div>
         </aside>
 
-        <!-- Contenedor Principal Dinámico de la SPA -->
         <main class="main-content">
-            <!-- Barra Superior de Herramientas de Interfaz -->
             <div class="top-bar">
                 <div class="system-status">
                     <span class="status-indicator"></span>
@@ -52,44 +143,34 @@
                 </button>
             </div>
 
-            <!-- SECCIÓN 1: ASISTENTE VIRTUAL MATHEW IA -->
+            <!-- SECCIÓN 1: MATHEW IA -->
             <div id="chat-section" class="content-section active-section">
                 <div class="card-premium chat-card">
                     <div class="section-header">
                         <h2>Asistente Virtual Mathew</h2>
                         <p>Adjunta tu receta médica en imagen o realiza consultas de salud clínica.</p>
                     </div>
-                    
-                    <!-- Caja de Conversación Interactiva -->
                     <div id="chat-box" class="chat-container">
                         <div class="message message-mathew">
                             <p>¡Hola! Bienvenido a <strong>FarmaConnect</strong>. ¿En qué malestar o síntoma común puedo orientarte hoy?</p>
                         </div>
                     </div>
-                    
-                    <!-- Barra de Entrada y Acciones de Archivos -->
                     <div class="chat-input-wrapper">
                         <div class="input-group">
-                            <label for="file-input" class="file-label-btn" title="Adjuntar imagen de receta médica (Groq Vision OCR)">
+                            <label for="file-input" class="file-label-btn" title="Adjuntar imagen de receta médica">
                                 <i data-lucide="paperclip"></i>
                             </label>
                             <input type="file" id="file-input" accept="image/*" style="display:none;" onchange="previewFile()">
-                            
                             <input type="text" id="chat-input" class="input-premium" placeholder="Escribe tu síntoma o consulta aquí..." onkeypress="if(event.key === 'Enter') enviarMensaje()">
-                            
                             <button class="btn-premium" onclick="enviarMensaje()">
                                 <i data-lucide="send"></i>
                             </button>
                         </div>
-                        
-                        <!-- Miniatura de Previsualización de Flujos Binarios -->
                         <div id="file-preview-container" class="file-preview-badge" style="display:none;">
                             <i data-lucide="image" size="14" style="color: var(--primary);"></i>
                             <span id="file-preview-name"></span>
                             <button onclick="clearFile()" class="clear-file-btn">✕</button>
                         </div>
-                        
-                        <!-- Alerta de Contención y Mitigación de Riesgos Médicos -->
                         <div class="legal-warning">
                             ⚠️ Los análisis automatizados por Inteligencia Artificial no reemplazan el diagnóstico de un médico. Consulte siempre a su profesional de la salud.
                         </div>
@@ -97,14 +178,13 @@
                 </div>
             </div>
 
-            <!-- SECCIÓN 2: COMPARADOR CONCURRENTE MULTIHILO -->
+            <!-- SECCIÓN 2: COMPARADOR -->
             <div id="search-section" class="content-section">
                 <div class="card-premium">
                     <div class="section-header">
                         <h2>Comparador de Precios en Tiempo Real</h2>
                         <p>El sistema ejecutará consultas en paralelo sobre los e-commerce farmacéuticos de Chile.</p>
                     </div>
-                    
                     <div class="search-bar-box">
                         <i data-lucide="search" class="search-bar-icon"></i>
                         <input type="text" id="manual-search" class="input-premium inline-search" placeholder="Escribe el nombre del medicamento (Ej: Tapsin, Paracetamol)">
@@ -112,42 +192,36 @@
                             <i data-lucide="play"></i> Comparar
                         </button>
                     </div>
-                    
-                    <!-- Contenedor Dinámico para Tarjetas de Resultados o Spinner -->
                     <div id="scraping-results" class="results-layout-grid"></div>
                 </div>
             </div>
 
-            <!-- SECCIÓN 3: HISTORIAL CRONOLÓGICO DE PRECIOS -->
+            <!-- SECCIÓN 3: HISTORIAL -->
             <div id="history-section" class="content-section">
                 <div class="card-premium">
                     <div class="section-header">
                         <h2>Evolución de Precio Histórico</h2>
                         <p>Elige un medicamento indexado en la base de datos relacional para auditar las fluctuaciones del mercado.</p>
                     </div>
-                    
                     <div class="selector-control-box">
                         <label for="med-selector">Producto en Registro:</label>
                         <select id="med-selector" class="input-premium select-premium" onchange="cargarHistorialFiltrado()">
                             <option value="">-- Escaneando Catálogo SQLite 3FN --</option>
                         </select>
                     </div>
-                    
-                    <!-- Canvas Envolvente para Trazado Cronológico (Chart.js) -->
                     <div class="chart-wrapper-box">
                         <canvas id="historyChart"></canvas>
                     </div>
                 </div>
             </div>
 
-            <!-- SECCIÓN 4: GEOLOCALIZACIÓN CLÍNICA -->
+            <!-- SECCIÓN 4: MAPA -->
             <div id="map-section" class="content-section">
                 <div class="card-premium">
                     <div class="section-header">
                         <h2>Sucursales Cercanas de Atención</h2>
                         <p>Capture sus coordenadas espaciales automáticas para mapear los establecimientos de salud más próximos.</p>
                     </div>
-                    
                     <div class="map-action-tabs">
                         <button class="btn-premium btn-tab-map" onclick="actualizarMapa('hospitales')">
                             <i data-lucide="heart-pulse"></i> Centros Médicos
@@ -156,8 +230,6 @@
                             <i data-lucide="map-pin"></i> Cadenas de Farmacias
                         </button>
                     </div>
-                    
-                    <!-- Marco de Incrustación de Mapas Enmascarados -->
                     <div class="map-frame-wrapper">
                         <iframe id="map-iframe" width="100%" height="480" frameborder="0" src="about:blank" allowfullscreen></iframe>
                     </div>
@@ -165,11 +237,8 @@
             </div>
         </main>
     </div>
-    <!-- Script de Inicialización de Iconos y Rutas de Lógica del Cliente -->
+
     <script src="script.js"></script>
-    <script>
-        // Inicializar los iconos vectoriales cargados dinámicamente
-        lucide.createIcons();
-    </script>
+    <script>lucide.createIcons();</script>
 </body>
 </html>
