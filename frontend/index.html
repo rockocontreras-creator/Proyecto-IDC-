@@ -100,12 +100,15 @@
     <!-- ========================================================= -->
     <div class="dashboard-layout" id="app-main" style="display:none;">
         <aside class="sidebar">
-            <div class="brand-container">
+            <div class="brand-container" style="cursor:pointer;" onclick="irAlInicio()">
                 <i data-lucide="activity" class="brand-icon"></i>
                 <h2>FarmaConnect</h2>
             </div>
             <nav class="nav-menu">
-                <button class="nav-btn active" onclick="showSection('chat', this)">
+                <button class="nav-btn active" onclick="showSection('home', this)">
+                    <i data-lucide="home"></i> Inicio
+                </button>
+                <button class="nav-btn" onclick="showSection('chat', this)">
                     <i data-lucide="message-square"></i> Mathew IA
                 </button>
                 <button class="nav-btn" onclick="showSection('search', this)">
@@ -149,16 +152,99 @@
                 </button>
             </div>
 
+            <!-- SECCIÓN: INICIO / HOME -->
+            <div id="home-section" class="content-section active-section">
+                <!-- Hero de bienvenida -->
+                <div class="home-hero">
+                    <div class="home-hero-text">
+                        <span class="home-badge">Plataforma de Salud Inteligente</span>
+                        <h1>Bienvenido a <span class="home-brand-text">FarmaConnect</span></h1>
+                        <p>Compara precios de medicamentos en tiempo real, identifica pastillas con inteligencia artificial, y consulta con nuestro asistente clínico Mathew. Todo en un solo lugar para cuidar tu salud y tu bolsillo.</p>
+                        <div class="home-hero-actions">
+                            <button class="btn-premium home-hero-btn" onclick="irASeccion('search')">
+                                <i data-lucide="bar-chart-2"></i> Comparar precios
+                            </button>
+                            <button class="btn-premium home-hero-btn home-hero-btn-outline" onclick="irASeccion('chat')">
+                                <i data-lucide="message-square"></i> Hablar con Mathew
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Features -->
+                <div class="home-features">
+                    <div class="home-feature-card" onclick="irASeccion('search')">
+                        <div class="home-feature-icon" style="background:#2563eb15;color:#2563eb;">
+                            <i data-lucide="bar-chart-2"></i>
+                        </div>
+                        <h3>Comparador en Tiempo Real</h3>
+                        <p>Busca cualquier medicamento y compara precios en Ahumada, Dr. Simi, Salcobrand y Cruz Verde al instante.</p>
+                    </div>
+                    <div class="home-feature-card" onclick="irASeccion('identificador')">
+                        <div class="home-feature-icon" style="background:#10b98115;color:#10b981;">
+                            <i data-lucide="scan"></i>
+                        </div>
+                        <h3>Identificador de Pastillas</h3>
+                        <p>Sube una foto de cualquier pastilla y la IA te dice qué medicamento es, para qué sirve y dónde comprarlo.</p>
+                    </div>
+                    <div class="home-feature-card" onclick="irASeccion('chat')">
+                        <div class="home-feature-icon" style="background:#f59e0b15;color:#f59e0b;">
+                            <i data-lucide="message-square"></i>
+                        </div>
+                        <h3>Asistente Mathew IA</h3>
+                        <p>Consulta síntomas, malestares o dudas de salud con nuestro chatbot clínico con entrada por voz.</p>
+                    </div>
+                    <div class="home-feature-card" onclick="irASeccion('map')">
+                        <div class="home-feature-icon" style="background:#ef444415;color:#ef4444;">
+                            <i data-lucide="map-pin"></i>
+                        </div>
+                        <h3>Mapa de Salud</h3>
+                        <p>Encuentra farmacias, clínicas y hospitales cercanos a tu ubicación con geolocalización automática.</p>
+                    </div>
+                </div>
+
+                <!-- Carrusel de medicamentos populares -->
+                <div class="home-popular-section">
+                    <div class="home-popular-header">
+                        <h2>Medicamentos más buscados</h2>
+                        <p>Los precios más bajos encontrados por nuestro sistema de scraping.</p>
+                    </div>
+                    <div class="home-carousel-wrapper">
+                        <button class="carousel-arrow carousel-arrow-left" onclick="scrollCarousel(-1)">
+                            <i data-lucide="chevron-left"></i>
+                        </button>
+                        <div class="home-carousel" id="home-carousel">
+                            <div class="home-carousel-empty" id="carousel-empty">
+                                <i data-lucide="search" style="width:32px;height:32px;opacity:0.3;"></i>
+                                <p>Aún no hay medicamentos registrados. Usa el comparador para poblar el catálogo.</p>
+                            </div>
+                        </div>
+                        <button class="carousel-arrow carousel-arrow-right" onclick="scrollCarousel(1)">
+                            <i data-lucide="chevron-right"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             <!-- SECCIÓN 1: MATHEW IA -->
-            <div id="chat-section" class="content-section active-section">
+            <div id="chat-section" class="content-section">
                 <div class="card-premium chat-card">
-                    <div class="section-header">
-                        <h2>Asistente Virtual Mathew</h2>
-                        <p>Adjunta tu receta médica en imagen o realiza consultas de salud clínica.</p>
+                    <div class="section-header chat-header-row">
+                        <div>
+                            <h2>Asistente Virtual Mathew</h2>
+                            <p>Adjunta tu receta médica en imagen o realiza consultas de salud clínica.</p>
+                        </div>
+                        <button class="btn-clear-chat" onclick="limpiarChatHistorial()" title="Limpiar historial de conversación">
+                            <i data-lucide="trash-2"></i> Limpiar historial
+                        </button>
                     </div>
                     <div id="chat-box" class="chat-container">
-                        <div class="message message-mathew">
-                            <p>¡Hola! Bienvenido a <strong>FarmaConnect</strong>. ¿En qué malestar o síntoma común puedo orientarte hoy?</p>
+                        <div class="chat-msg chat-msg-bot">
+                            <div class="chat-avatar chat-avatar-bot"><i data-lucide="bot"></i></div>
+                            <div class="chat-msg-content">
+                                <span class="chat-sender-name">Mathew</span>
+                                <div class="chat-bubble chat-bubble-bot">¡Hola! Bienvenido a <strong>FarmaConnect</strong>. ¿En qué malestar o síntoma puedo orientarte hoy? También puedo ayudarte a encontrar farmacias o clínicas cercanas.</div>
+                            </div>
                         </div>
                     </div>
                     <div class="chat-input-wrapper">
@@ -167,10 +253,19 @@
                                 <i data-lucide="paperclip"></i>
                             </label>
                             <input type="file" id="file-input" accept="image/*" style="display:none;" onchange="previewFile()">
-                            <input type="text" id="chat-input" class="input-premium" placeholder="Escribe tu síntoma o consulta aquí..." onkeypress="if(event.key === 'Enter') enviarMensaje()">
+                            <input type="text" id="chat-input" class="input-premium" placeholder="Escribe tu síntoma o habla con el micrófono..." onkeypress="if(event.key === 'Enter') enviarMensaje()">
+                            <button class="btn-mic" id="btn-mic" onclick="toggleVoz()" title="Entrada por voz">
+                                <i data-lucide="mic" id="mic-icon"></i>
+                            </button>
                             <button class="btn-premium" onclick="enviarMensaje()">
                                 <i data-lucide="send"></i>
                             </button>
+                        </div>
+                        <!-- Indicador de voz activa -->
+                        <div id="voice-indicator" class="voice-indicator" style="display:none;">
+                            <span class="voice-pulse"></span>
+                            <span>Escuchando... habla ahora</span>
+                            <button onclick="detenerVoz()" class="voice-stop-btn">Detener</button>
                         </div>
                         <div id="file-preview-container" class="file-preview-badge" style="display:none;">
                             <i data-lucide="image" size="14" style="color: var(--primary);"></i>
