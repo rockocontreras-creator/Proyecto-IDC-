@@ -12,6 +12,7 @@ import sqlite3
 import hashlib
 import secrets
 import time
+import json
 import os
 from groq import Groq
 
@@ -19,7 +20,7 @@ app = Flask(__name__)
 # CORS abierto para desarrollo local — acepta cualquier origen
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-client = Groq(api_key="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")
+client = Groq(api_key="")
 
 APP_SECRET = 'farmaconnect_dev_secret_2024'
 
@@ -36,9 +37,9 @@ HEADLESS = True
 # =========================================================
 _tokens: dict = {}
 
-def crear_token(user_id: int, nombre: str, correo: str) -> str:
+def crear_token(user_id: int, nombre: str, correo: str, es_admin: int = 0) -> str:
     token = secrets.token_hex(32)
-    _tokens[token] = {"id": user_id, "nombre": nombre, "correo": correo}
+    _tokens[token] = {"id": user_id, "nombre": nombre, "correo": correo, "es_admin": bool(es_admin)}
     return token
 
 def resolver_token() -> dict | None:
@@ -47,6 +48,13 @@ def resolver_token() -> dict | None:
     if auth.startswith("Bearer "):
         token = auth[7:]
         return _tokens.get(token)
+    return None
+
+def resolver_admin() -> dict | None:
+    """Devuelve el usuario solo si tiene sesión válida Y es administrador."""
+    u = resolver_token()
+    if u and u.get("es_admin"):
+        return u
     return None
 
 def hash_password(password: str) -> str:
@@ -70,7 +78,13 @@ def init_db():
                         id_usuario INTEGER PRIMARY KEY AUTOINCREMENT,
                         nombre TEXT NOT NULL,
                         correo TEXT NOT NULL UNIQUE,
-                        contraseña TEXT NOT NULL)''')
+                        contraseña TEXT NOT NULL,
+                        es_admin INTEGER DEFAULT 0)''')
+    # Migración: si la tabla 'usuarios' ya existía sin la columna es_admin, la añadimos
+    try:
+        cursor.execute("ALTER TABLE usuarios ADD COLUMN es_admin INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass  # la columna ya existe
     cursor.execute('''CREATE TABLE IF NOT EXISTS historial (
                         id_historial INTEGER PRIMARY KEY AUTOINCREMENT,
                         id_farmacia INTEGER NOT NULL,
@@ -120,11 +134,11 @@ def registro():
                        (nombre, correo, hash_password(password)))
         conn.commit()
         user_id = cursor.lastrowid
-        token = crear_token(user_id, nombre, correo)
+        token = crear_token(user_id, nombre, correo, 0)
         return jsonify({
             "mensaje": "Cuenta creada con éxito.",
             "token": token,
-            "usuario": {"id": user_id, "nombre": nombre, "correo": correo}
+            "usuario": {"id": user_id, "nombre": nombre, "correo": correo, "es_admin": False}
         }), 201
     except sqlite3.IntegrityError:
         return jsonify({"error": "Este correo ya está registrado."}), 409
@@ -143,7 +157,7 @@ def login():
 
     conn = sqlite3.connect('farmacia.db')
     cursor = conn.cursor()
-    cursor.execute("SELECT id_usuario, nombre, correo FROM usuarios WHERE correo = ? AND contraseña = ?",
+    cursor.execute("SELECT id_usuario, nombre, correo, es_admin FROM usuarios WHERE correo = ? AND contraseña = ?",
                    (correo, hash_password(password)))
     usuario = cursor.fetchone()
     conn.close()
@@ -151,11 +165,11 @@ def login():
     if not usuario:
         return jsonify({"error": "Correo o contraseña incorrectos."}), 401
 
-    token = crear_token(usuario[0], usuario[1], usuario[2])
+    token = crear_token(usuario[0], usuario[1], usuario[2], usuario[3])
     return jsonify({
         "mensaje": "Sesión iniciada.",
         "token": token,
-        "usuario": {"id": usuario[0], "nombre": usuario[1], "correo": usuario[2]}
+        "usuario": {"id": usuario[0], "nombre": usuario[1], "correo": usuario[2], "es_admin": bool(usuario[3])}
     })
 
 
@@ -173,6 +187,236 @@ def me():
     if usuario:
         return jsonify({"autenticado": True, "usuario": usuario})
     return jsonify({"autenticado": False}), 401
+
+
+# =========================================================
+# PANEL DE ADMINISTRADOR (todos los endpoints requieren admin)
+# =========================================================
+
+@app.route('/admin/stats', methods=['GET'])
+def admin_stats():
+    if not resolver_admin():
+        return jsonify({"error": "Acceso denegado. Se requieren permisos de administrador."}), 403
+    conn = sqlite3.connect('farmacia.db')
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM usuarios");      total_usuarios = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM usuarios WHERE es_admin = 1"); total_admins = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM medicamentos");  total_meds = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM historial");     total_hist = c.fetchone()[0]
+    conn.close()
+    return jsonify({
+        "usuarios": total_usuarios,
+        "admins": total_admins,
+        "medicamentos": total_meds,
+        "busquedas": total_hist
+    })
+
+
+@app.route('/admin/usuarios', methods=['GET'])
+def admin_listar_usuarios():
+    if not resolver_admin():
+        return jsonify({"error": "Acceso denegado."}), 403
+    conn = sqlite3.connect('farmacia.db')
+    c = conn.cursor()
+    c.execute("SELECT id_usuario, nombre, correo, es_admin FROM usuarios ORDER BY id_usuario ASC")
+    usuarios = [{"id": r[0], "nombre": r[1], "correo": r[2], "es_admin": bool(r[3])} for r in c.fetchall()]
+    conn.close()
+    return jsonify(usuarios)
+
+
+@app.route('/admin/usuarios/<int:uid>', methods=['PUT'])
+def admin_editar_usuario(uid):
+    admin = resolver_admin()
+    if not admin:
+        return jsonify({"error": "Acceso denegado."}), 403
+    data = request.json
+    nombre   = data.get('nombre', '').strip()
+    correo   = data.get('correo', '').strip().lower()
+    es_admin = 1 if data.get('es_admin') else 0
+    password = data.get('password', '')  # opcional
+
+    if not nombre or not correo:
+        return jsonify({"error": "Nombre y correo son obligatorios."}), 400
+
+    # Evita que un admin se quite a sí mismo el último acceso de administrador
+    if admin['id'] == uid and es_admin == 0:
+        conn = sqlite3.connect('farmacia.db'); c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM usuarios WHERE es_admin = 1"); n = c.fetchone()[0]; conn.close()
+        if n <= 1:
+            return jsonify({"error": "No puedes quitarte el rol de admin siendo el único administrador."}), 400
+
+    conn = sqlite3.connect('farmacia.db')
+    c = conn.cursor()
+    try:
+        if password:
+            if len(password) < 6:
+                return jsonify({"error": "La contraseña debe tener al menos 6 caracteres."}), 400
+            c.execute("UPDATE usuarios SET nombre=?, correo=?, es_admin=?, contraseña=? WHERE id_usuario=?",
+                      (nombre, correo, es_admin, hash_password(password), uid))
+        else:
+            c.execute("UPDATE usuarios SET nombre=?, correo=?, es_admin=? WHERE id_usuario=?",
+                      (nombre, correo, es_admin, uid))
+        conn.commit()
+        # Mantener sincronizados los tokens activos de ese usuario
+        for tk, info in _tokens.items():
+            if info["id"] == uid:
+                info["nombre"] = nombre; info["correo"] = correo; info["es_admin"] = bool(es_admin)
+        return jsonify({"mensaje": "Usuario actualizado."})
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "Ese correo ya está en uso por otro usuario."}), 409
+    finally:
+        conn.close()
+
+
+@app.route('/admin/usuarios/<int:uid>', methods=['DELETE'])
+def admin_eliminar_usuario(uid):
+    admin = resolver_admin()
+    if not admin:
+        return jsonify({"error": "Acceso denegado."}), 403
+    if admin['id'] == uid:
+        return jsonify({"error": "No puedes eliminar tu propia cuenta."}), 400
+    conn = sqlite3.connect('farmacia.db')
+    c = conn.cursor()
+    c.execute("DELETE FROM usuarios WHERE id_usuario=?", (uid,))
+    conn.commit()
+    conn.close()
+    return jsonify({"mensaje": "Usuario eliminado."})
+
+
+@app.route('/admin/historial', methods=['GET'])
+def admin_listar_historial():
+    if not resolver_admin():
+        return jsonify({"error": "Acceso denegado."}), 403
+    conn = sqlite3.connect('farmacia.db')
+    c = conn.cursor()
+    c.execute('''SELECT h.id_historial, m.nombre_buscado, f.nombre_farmacia, h.nombre_especifico,
+                        h.precio, h.fecha_registro, COALESCE(u.nombre, 'Anónimo')
+                 FROM historial h
+                 JOIN farmacias f ON h.id_farmacia = f.id_farmacias
+                 JOIN medicamentos m ON h.id_medicamento = m.id_medicamento
+                 LEFT JOIN usuarios u ON h.id_usuario = u.id_usuario
+                 ORDER BY h.fecha_registro DESC LIMIT 200''')
+    rows = [{"id": r[0], "buscado": r[1], "farmacia": r[2], "producto": r[3],
+             "precio": r[4], "fecha": r[5], "usuario": r[6]} for r in c.fetchall()]
+    conn.close()
+    return jsonify(rows)
+
+
+@app.route('/admin/historial/<int:hid>', methods=['DELETE'])
+def admin_eliminar_historial(hid):
+    if not resolver_admin():
+        return jsonify({"error": "Acceso denegado."}), 403
+    conn = sqlite3.connect('farmacia.db')
+    c = conn.cursor()
+    c.execute("DELETE FROM historial WHERE id_historial=?", (hid,))
+    conn.commit()
+    conn.close()
+    return jsonify({"mensaje": "Registro eliminado."})
+
+
+@app.route('/admin/medicamentos', methods=['GET'])
+def admin_listar_medicamentos():
+    if not resolver_admin():
+        return jsonify({"error": "Acceso denegado."}), 403
+    conn = sqlite3.connect('farmacia.db')
+    c = conn.cursor()
+    c.execute('''SELECT m.id_medicamento, m.nombre_buscado, COUNT(h.id_historial)
+                 FROM medicamentos m
+                 LEFT JOIN historial h ON h.id_medicamento = m.id_medicamento
+                 GROUP BY m.id_medicamento ORDER BY m.nombre_buscado ASC''')
+    rows = [{"id": r[0], "nombre": r[1], "busquedas": r[2]} for r in c.fetchall()]
+    conn.close()
+    return jsonify(rows)
+
+
+@app.route('/admin/medicamentos/<int:mid>', methods=['DELETE'])
+def admin_eliminar_medicamento(mid):
+    if not resolver_admin():
+        return jsonify({"error": "Acceso denegado."}), 403
+    conn = sqlite3.connect('farmacia.db')
+    c = conn.cursor()
+    c.execute("DELETE FROM historial WHERE id_medicamento=?", (mid,))   # borra su historial asociado
+    c.execute("DELETE FROM medicamentos WHERE id_medicamento=?", (mid,))
+    conn.commit()
+    conn.close()
+    return jsonify({"mensaje": "Medicamento y su historial eliminados."})
+
+
+# =========================================================
+# IDENTIFICADOR DE PASTILLAS (Groq Vision)
+# =========================================================
+
+@app.route('/identificar_pastilla', methods=['POST'])
+def identificar_pastilla():
+    data = request.json
+    # Acepta una sola imagen o una lista de hasta 2 imágenes
+    imagenes = data.get('imagenes_base64', [])
+    if not imagenes:
+        img_unica = data.get('imagen_base64')
+        if img_unica:
+            imagenes = [img_unica]
+    if not imagenes:
+        return jsonify({"error": "Debes enviar al menos una imagen de la pastilla."}), 400
+    if len(imagenes) > 2:
+        imagenes = imagenes[:2]
+
+    multi = len(imagenes) > 1
+    prompt = (
+        "Eres un experto farmacéutico chileno con amplio conocimiento en identificación visual de medicamentos. "
+        f"Analiza {'estas imágenes' if multi else 'esta imagen'} de una pastilla, comprimido, cápsula o medicamento. "
+        f"{'Las fotos pueden mostrar la misma pastilla desde distintos ángulos (anverso/reverso). Usa ambas para mejorar la identificación. ' if multi else ''}"
+        "Identifica el medicamento basándote en su forma, color, tamaño, grabados, letras, números o marcas visibles.\n\n"
+        "Responde ÚNICAMENTE con un objeto JSON válido (sin bloques de código, sin texto adicional) con estos campos:\n"
+        '{\n'
+        '  "nombre": "Nombre comercial más probable del medicamento",\n'
+        '  "principio_activo": "Principio activo / molécula",\n'
+        '  "descripcion": "Breve descripción de para qué se usa (2-3 líneas)",\n'
+        '  "forma": "Comprimido / Cápsula / Tableta / Gragea / etc",\n'
+        '  "color": "Color observado",\n'
+        '  "grabado": "Texto o marcas visibles en la pastilla (o N/A)",\n'
+        '  "laboratorio": "Laboratorio fabricante probable (o Desconocido)",\n'
+        '  "confianza": "alta / media / baja",\n'
+        '  "buscar": "Término óptimo para buscar este medicamento en farmacias chilenas (ej: paracetamol 500mg)",\n'
+        '  "advertencia": "Alguna precaución importante (interacciones, contraindicaciones comunes)"\n'
+        '}\n\n'
+        "Si NO puedes identificar el medicamento con certeza, responde igualmente con el JSON "
+        "poniendo confianza 'baja' y en nombre pon tu mejor estimación o 'No identificado'. "
+        "NUNCA respondas fuera del formato JSON."
+    )
+
+    respuesta_cruda = ""
+    try:
+        contenido = [{"type": "text", "text": prompt}]
+        for img_b64 in imagenes:
+            contenido.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}})
+
+        completion = client.chat.completions.create(
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
+            messages=[{"role": "user", "content": contenido}],
+            temperature=0.2
+        )
+        respuesta_cruda = completion.choices[0].message.content.strip()
+
+        # Limpiar posibles fences de markdown (```json ... ```)
+        if respuesta_cruda.startswith("```"):
+            respuesta_cruda = respuesta_cruda.split("```")[1]
+            if respuesta_cruda.startswith("json"):
+                respuesta_cruda = respuesta_cruda[4:]
+            respuesta_cruda = respuesta_cruda.strip()
+
+        resultado = json.loads(respuesta_cruda)
+        return jsonify({"resultado": resultado})
+
+    except json.JSONDecodeError:
+        return jsonify({"resultado": {
+            "nombre": "No se pudo procesar",
+            "descripcion": respuesta_cruda[:500] if respuesta_cruda else "Error al analizar la imagen.",
+            "confianza": "baja",
+            "buscar": ""
+        }})
+    except Exception as e:
+        print(f"Error en identificación de pastilla: {e}")
+        return jsonify({"error": f"Error al procesar la imagen: {str(e)[:200]}"}), 500
 
 
 # =========================================================
@@ -656,7 +900,7 @@ def consultar_asistente():
                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{archivo_base64}"}}
             ]
             completion = client.chat.completions.create(
-                model="llama-3.2-90b-vision-preview",
+                model="meta-llama/llama-4-scout-17b-16e-instruct",
                 messages=[{"role": "user", "content": contenido}]
             )
         else:
