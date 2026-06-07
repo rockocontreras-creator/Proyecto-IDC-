@@ -104,6 +104,16 @@ def init_db():
         (4, 'Cruz Verde', '#009639'),
     ]
     cursor.executemany("INSERT OR IGNORE INTO farmacias (id_farmacias, nombre_farmacia, color_distintivo) VALUES (?,?,?)", farmacias_data)
+
+    # 5. Tabla de historial de chat (persistencia de conversaciones con Mathew)
+    cursor.execute('''CREATE TABLE IF NOT EXISTS chat_historial (
+                        id_chat INTEGER PRIMARY KEY AUTOINCREMENT,
+                        id_usuario INTEGER NOT NULL,
+                        rol TEXT NOT NULL,
+                        mensaje TEXT NOT NULL,
+                        fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY(id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE)''')
+
     conn.commit()
     conn.close()
 
@@ -840,12 +850,110 @@ def obtener_historial():
     return jsonify(data)
 
 
+# =========================================================
+# MEDICAMENTOS POPULARES (para la página de inicio)
+# =========================================================
+
+@app.route('/medicamentos_populares', methods=['GET'])
+def medicamentos_populares():
+    """Devuelve los medicamentos más buscados con el precio más bajo registrado por farmacia."""
+    conn = sqlite3.connect('farmacia.db')
+    c = conn.cursor()
+    # Top 10 medicamentos más buscados (por cantidad de registros en historial)
+    c.execute('''
+        SELECT m.nombre_buscado,
+               MIN(h.precio) as precio_min,
+               f_min.nombre_farmacia as farmacia_barata,
+               f_min.color_distintivo as color,
+               COUNT(h.id_historial) as total_busquedas
+        FROM historial h
+        JOIN medicamentos m ON h.id_medicamento = m.id_medicamento
+        JOIN farmacias f_min ON f_min.id_farmacias = (
+            SELECT h2.id_farmacia FROM historial h2
+            WHERE h2.id_medicamento = m.id_medicamento
+            ORDER BY h2.precio ASC LIMIT 1
+        )
+        GROUP BY m.id_medicamento
+        ORDER BY total_busquedas DESC
+        LIMIT 10
+    ''')
+    resultados = []
+    for row in c.fetchall():
+        resultados.append({
+            "nombre": row[0],
+            "precio_min": row[1],
+            "farmacia": row[2],
+            "color": row[3],
+            "busquedas": row[4]
+        })
+    conn.close()
+    return jsonify(resultados)
+
+
+# =========================================================
+# HISTORIAL DE CHAT (persistencia de conversaciones con Mathew)
+# =========================================================
+
+@app.route('/chat/historial', methods=['GET'])
+def chat_historial():
+    usuario = resolver_token()
+    if not usuario:
+        return jsonify([])
+    conn = sqlite3.connect('farmacia.db')
+    c = conn.cursor()
+    c.execute('''SELECT rol, mensaje, fecha FROM chat_historial
+                 WHERE id_usuario = ? ORDER BY id_chat ASC LIMIT 100''',
+              (usuario['id'],))
+    mensajes = [{"rol": r[0], "mensaje": r[1], "fecha": r[2]} for r in c.fetchall()]
+    conn.close()
+    return jsonify(mensajes)
+
+
+@app.route('/chat/historial', methods=['DELETE'])
+def chat_limpiar():
+    usuario = resolver_token()
+    if not usuario:
+        return jsonify({"error": "No autenticado."}), 401
+    conn = sqlite3.connect('farmacia.db')
+    c = conn.cursor()
+    c.execute("DELETE FROM chat_historial WHERE id_usuario = ?", (usuario['id'],))
+    conn.commit()
+    conn.close()
+    return jsonify({"mensaje": "Historial de chat eliminado."})
+
+
+def _guardar_chat(user_id, rol, mensaje):
+    """Guarda un mensaje de chat en la BD. Se llama internamente."""
+    if not user_id or not mensaje:
+        return
+    try:
+        conn = sqlite3.connect('farmacia.db')
+        c = conn.cursor()
+        c.execute("INSERT INTO chat_historial (id_usuario, rol, mensaje) VALUES (?, ?, ?)",
+                  (user_id, rol, mensaje[:5000]))  # limita a 5000 chars
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Error guardando chat: {e}")
+
+
 @app.route('/consultar_asistente', methods=['POST'])
 def consultar_asistente():
-    # IA es pública — no requiere token
+    # IA es pública — no requiere token, pero si hay token guardamos el chat
+    usuario = resolver_token()
+    user_id = usuario['id'] if usuario else None
+
     data = request.json
     pregunta = data.get('pregunta', '')
     archivo_base64 = data.get('archivo_base64')
+    latitud = data.get('latitud')
+    longitud = data.get('longitud')
+
+    # Guardar mensaje del usuario
+    if user_id and pregunta:
+        _guardar_chat(user_id, 'user', pregunta)
+    elif user_id and archivo_base64:
+        _guardar_chat(user_id, 'user', '🖼️ Imagen de receta médica enviada')
 
     contexto_precios = ""
     try:
@@ -880,17 +988,28 @@ def consultar_asistente():
         print(f"Error DB: {db_err}")
         contexto_precios = "AVISO: Error interno SQLite."
 
+    # Contexto de ubicación del usuario
+    contexto_ubicacion = ""
+    if latitud and longitud:
+        contexto_ubicacion = (
+            f"\n\nUBICACIÓN DEL USUARIO: Latitud {latitud}, Longitud {longitud} (Chile). "
+            "Si pregunta por farmacias, clínicas, hospitales o centros médicos cercanos, "
+            "usa estas coordenadas para orientarlo geográficamente. Menciona comunas, calles o sectores chilenos conocidos "
+            "que estén cerca de esas coordenadas. También recuérdale que puede usar la sección 'Mapa Salud' de FarmaConnect "
+            "para ver las sucursales exactas en un mapa interactivo."
+        )
+
     reglas = (
-        "REGLAS DE SISTEMA ULTRA-ESTRICTAS DE FARMANCONNECT (OBLIGATORIAS):\n"
-        "1. Eres Mathew, asistente clínico virtual de FarmaConnect. NO eres médico.\n"
-        "2. Responde ÚNICAMENTE dudas de salud humana (malestares o síntomas comunes).\n"
-        "3. No sugieras medicamentos por iniciativa propia. Usa solo medidas físicas leves.\n"
-        "4. PROTOCOLO DE TABLA: SÓLO si recibes 'DATOS REALES EXTRAÍDOS', construye una tabla Markdown:\n"
-        "   ### 📊 Precios registrados en Chile\n"
-        "   | Farmacia | Producto Encontrado | Precio Registrado (CLP) |\n"
-        "   | :--- | :--- | :--- |\n"
-        "   Luego indica cuál farmacia es más barata.\n"
-        "5. Explica brevemente para qué sirve el fármaco. Incluye SIEMPRE advertencia de consultar médico."
+        "REGLAS DE SISTEMA DE FARMACONNECT:\n"
+        "1. Eres Mathew, asistente clínico virtual de FarmaConnect. NO eres médico. Responde de forma cálida y profesional.\n"
+        "2. Responde dudas de salud humana, malestares, síntomas comunes, y consultas sobre medicamentos.\n"
+        "3. No sugieras medicamentos por iniciativa propia para tratar dolores. Usa medidas físicas leves (reposo, compresas).\n"
+        "4. PROTOCOLO DE TABLA: SÓLO si recibes 'DATOS REALES EXTRAÍDOS', construye una tabla Markdown con los precios.\n"
+        "5. Cuando el usuario pregunte por farmacias, clínicas u hospitales cercanos, oriéntalo geográficamente usando "
+        "la ubicación proporcionada (si la hay) y recomiéndale usar la sección 'Mapa Salud' de FarmaConnect para ver un mapa interactivo.\n"
+        "6. Explica brevemente para qué sirve cada fármaco mencionado. Incluye SIEMPRE advertencia de consultar médico.\n"
+        "7. Responde siempre en español. Sé conciso pero informativo."
+        f"{contexto_ubicacion}"
     )
 
     try:
@@ -911,7 +1030,13 @@ def consultar_asistente():
                     {"role": "user", "content": f"Contexto DB: {contexto_precios}\n\nConsulta: {pregunta}"}
                 ]
             )
-        return jsonify({"respuesta": completion.choices[0].message.content})
+        respuesta = completion.choices[0].message.content
+
+        # Guardar respuesta de Mathew
+        if user_id:
+            _guardar_chat(user_id, 'assistant', respuesta)
+
+        return jsonify({"respuesta": respuesta})
     except Exception as e:
         print(f"Error Groq: {e}")
         return jsonify({"respuesta": "Mathew está experimentando problemas técnicos temporales."}), 500
