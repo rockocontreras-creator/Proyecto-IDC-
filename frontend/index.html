@@ -111,11 +111,17 @@
                 <button class="nav-btn" onclick="showSection('search', this)">
                     <i data-lucide="bar-chart-2"></i> Comparador
                 </button>
+                <button class="nav-btn" onclick="showSection('identificador', this)">
+                    <i data-lucide="scan"></i> Identificador
+                </button>
                 <button class="nav-btn" onclick="abrirHistorial(this)">
                     <i data-lucide="history"></i> Historial
                 </button>
                 <button class="nav-btn" onclick="showSection('map', this)">
                     <i data-lucide="map"></i> Mapa Salud
+                </button>
+                <button class="nav-btn nav-admin" id="nav-admin-btn" onclick="abrirAdmin(this)" style="display:none;">
+                    <i data-lucide="shield"></i> Administración
                 </button>
             </nav>
 
@@ -196,6 +202,45 @@
                 </div>
             </div>
 
+            <!-- SECCIÓN: IDENTIFICADOR DE PASTILLAS -->
+            <div id="identificador-section" class="content-section">
+                <div class="card-premium">
+                    <div class="section-header">
+                        <h2>Identificador de Pastillas</h2>
+                        <p>Sube una foto de cualquier pastilla, comprimido o cápsula y la IA identificará el medicamento.</p>
+                    </div>
+
+                    <!-- Zona de carga de imagen -->
+                    <div class="pill-upload-zone" id="pill-drop-zone" onclick="document.getElementById('pill-file-input').click()">
+                        <input type="file" id="pill-file-input" accept="image/*" capture="environment" style="display:none;" onchange="pillFileSelected(event)" multiple>
+                        <div class="pill-upload-placeholder" id="pill-placeholder">
+                            <i data-lucide="camera" class="pill-upload-icon"></i>
+                            <p>Arrastra hasta 2 fotos o toca para abrir la cámara</p>
+                            <span>Anverso y reverso de la pastilla — JPG, PNG</span>
+                        </div>
+                        <div class="pill-previews" id="pill-previews" style="display:none;"></div>
+                    </div>
+
+                    <!-- Botones de acción -->
+                    <div class="pill-actions">
+                        <button class="btn-premium" id="pill-identify-btn" onclick="identificarPastilla()" disabled>
+                            <i data-lucide="search"></i> Identificar medicamento
+                        </button>
+                        <button class="pill-clear-btn" id="pill-clear-btn" onclick="limpiarIdentificador()" style="display:none;">
+                            <i data-lucide="x"></i> Limpiar
+                        </button>
+                    </div>
+
+                    <!-- Resultado de la identificación -->
+                    <div id="pill-result" style="display:none;"></div>
+
+                    <!-- Advertencia legal -->
+                    <div class="legal-warning" style="margin-top:16px;">
+                        ⚠️ La identificación por IA es orientativa. Consulte siempre a un farmacéutico o médico para confirmar el medicamento.
+                    </div>
+                </div>
+            </div>
+
             <!-- SECCIÓN 3: HISTORIAL -->
             <div id="history-section" class="content-section">
                 <div class="card-premium">
@@ -235,7 +280,69 @@
                     </div>
                 </div>
             </div>
+
+            <!-- SECCIÓN 5: PANEL DE ADMINISTRADOR -->
+            <div id="admin-section" class="content-section">
+                <div class="section-header" style="margin-bottom:24px;">
+                    <h2>Panel de Administración</h2>
+                    <p>Gestiona usuarios, historial de búsquedas y el catálogo de medicamentos.</p>
+                </div>
+
+                <!-- Tarjetas de estadísticas -->
+                <div class="admin-stats-grid" id="admin-stats">
+                    <div class="stat-card"><span class="stat-label">Usuarios</span><span class="stat-value" id="stat-usuarios">—</span></div>
+                    <div class="stat-card"><span class="stat-label">Administradores</span><span class="stat-value" id="stat-admins">—</span></div>
+                    <div class="stat-card"><span class="stat-label">Medicamentos</span><span class="stat-value" id="stat-meds">—</span></div>
+                    <div class="stat-card"><span class="stat-label">Búsquedas</span><span class="stat-value" id="stat-busquedas">—</span></div>
+                </div>
+
+                <!-- Sub-pestañas del panel -->
+                <div class="admin-tabs">
+                    <button class="admin-tab active" onclick="adminTab('usuarios', this)">Usuarios</button>
+                    <button class="admin-tab" onclick="adminTab('historial', this)">Historial</button>
+                    <button class="admin-tab" onclick="adminTab('medicamentos', this)">Medicamentos</button>
+                </div>
+
+                <div class="card-premium" style="padding:0;overflow:hidden;">
+                    <div id="admin-panel-usuarios" class="admin-panel"></div>
+                    <div id="admin-panel-historial" class="admin-panel" style="display:none;"></div>
+                    <div id="admin-panel-medicamentos" class="admin-panel" style="display:none;"></div>
+                </div>
+            </div>
         </main>
+    </div>
+
+    <!-- Modal de edición de usuario -->
+    <div id="edit-user-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>Editar usuario</h3>
+                <button class="modal-close" onclick="cerrarModalUsuario()">✕</button>
+            </div>
+            <input type="hidden" id="edit-user-id">
+            <div class="auth-field">
+                <label>Nombre</label>
+                <div class="auth-input-wrap"><i data-lucide="user" class="auth-input-icon"></i>
+                    <input type="text" id="edit-user-nombre"></div>
+            </div>
+            <div class="auth-field">
+                <label>Correo</label>
+                <div class="auth-input-wrap"><i data-lucide="mail" class="auth-input-icon"></i>
+                    <input type="email" id="edit-user-correo"></div>
+            </div>
+            <div class="auth-field">
+                <label>Nueva contraseña <span class="auth-hint">(opcional, dejar en blanco para no cambiar)</span></label>
+                <div class="auth-input-wrap"><i data-lucide="lock" class="auth-input-icon"></i>
+                    <input type="password" id="edit-user-password" placeholder="••••••••"></div>
+            </div>
+            <label class="admin-checkbox">
+                <input type="checkbox" id="edit-user-admin"> Es administrador
+            </label>
+            <div id="edit-user-alert" class="auth-alert error" style="display:none;"></div>
+            <button class="auth-submit-btn" onclick="guardarUsuario()">
+                <span>Guardar cambios</span><i data-lucide="check"></i>
+            </button>
+        </div>
     </div>
 
     <script src="script.js"></script>
