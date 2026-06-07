@@ -30,7 +30,8 @@ def inicializar_nuevo_esquema():
                         id_usuario INTEGER PRIMARY KEY AUTOINCREMENT,
                         nombre TEXT NOT NULL,
                         correo TEXT NOT NULL UNIQUE,
-                        contraseña TEXT NOT NULL
+                        contraseña TEXT NOT NULL,
+                        es_admin INTEGER DEFAULT 0
                     )''')
 
     print("Creando tabla transaccional central con llaves foráneas...")
