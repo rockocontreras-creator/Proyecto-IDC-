@@ -176,6 +176,11 @@ function mostrarApp(usuario) {
     document.getElementById('user-avatar-initials').textContent = iniciales;
     document.getElementById('sidebar-user-name').textContent = usuario.nombre;
     document.getElementById('sidebar-user-email').textContent = usuario.correo;
+
+    // Mostrar el botón de administración solo si el usuario es admin
+    const navAdmin = document.getElementById('nav-admin-btn');
+    if (navAdmin) navAdmin.style.display = usuario.es_admin ? 'flex' : 'none';
+
     lucide.createIcons();
 }
 
@@ -497,4 +502,378 @@ function actualizarMapa(tipo) {
             ()  => { document.getElementById('map-iframe').src = `https://maps.google.com/maps?q=${tipo}&z=13&output=embed`; }
         );
     }
+}
+
+// =========================================================
+// IDENTIFICADOR DE PASTILLAS
+// =========================================================
+let pillImages = []; // array de { base64, dataUrl }
+
+// Drag & drop
+document.addEventListener('DOMContentLoaded', () => {
+    const zone = document.getElementById('pill-drop-zone');
+    if (!zone) return;
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+    zone.addEventListener('drop', e => {
+        e.preventDefault();
+        zone.classList.remove('drag-over');
+        const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/')).slice(0, 2);
+        files.forEach(f => agregarImagenPastilla(f));
+    });
+});
+
+function pillFileSelected(e) {
+    const files = Array.from(e.target.files).slice(0, 2 - pillImages.length);
+    files.forEach(f => agregarImagenPastilla(f));
+    e.target.value = ''; // permite reseleccionar el mismo archivo
+}
+
+function agregarImagenPastilla(file) {
+    if (pillImages.length >= 2) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+        pillImages.push({
+            base64: ev.target.result.split(',')[1],
+            dataUrl: ev.target.result
+        });
+        renderPillPreviews();
+    };
+    reader.readAsDataURL(file);
+}
+
+function renderPillPreviews() {
+    const container = document.getElementById('pill-previews');
+    const placeholder = document.getElementById('pill-placeholder');
+
+    if (pillImages.length === 0) {
+        container.style.display = 'none';
+        placeholder.style.display = 'flex';
+        document.getElementById('pill-identify-btn').disabled = true;
+        document.getElementById('pill-clear-btn').style.display = 'none';
+        return;
+    }
+
+    placeholder.style.display = 'none';
+    container.style.display = 'flex';
+    document.getElementById('pill-identify-btn').disabled = false;
+    document.getElementById('pill-clear-btn').style.display = 'inline-flex';
+
+    let html = '';
+    pillImages.forEach((img, i) => {
+        html += `<div class="pill-preview-slot">
+            <img src="${img.dataUrl}" alt="Foto ${i + 1}">
+            <button class="pill-preview-remove" onclick="event.stopPropagation(); quitarImagenPastilla(${i})">✕</button>
+            <span class="pill-preview-label">${i === 0 ? 'Anverso' : 'Reverso'}</span>
+        </div>`;
+    });
+    if (pillImages.length < 2) {
+        html += `<div class="pill-preview-slot pill-add-slot" onclick="event.stopPropagation(); document.getElementById('pill-file-input').click();">
+            <i data-lucide="plus" style="width:28px;height:28px;color:var(--text-muted);"></i>
+            <span style="font-size:0.8rem;color:var(--text-muted);">Agregar reverso</span>
+        </div>`;
+    }
+    container.innerHTML = html;
+    lucide.createIcons();
+}
+
+function quitarImagenPastilla(index) {
+    pillImages.splice(index, 1);
+    renderPillPreviews();
+    document.getElementById('pill-result').style.display = 'none';
+}
+
+function limpiarIdentificador() {
+    pillImages = [];
+    document.getElementById('pill-file-input').value = '';
+    renderPillPreviews();
+    document.getElementById('pill-result').style.display = 'none';
+}
+
+async function identificarPastilla() {
+    if (pillImages.length === 0) return;
+    const btn = document.getElementById('pill-identify-btn');
+    const resultDiv = document.getElementById('pill-result');
+
+    btn.disabled = true;
+    btn.innerHTML = '<div class="auth-spinner"></div> Analizando imagen...';
+    resultDiv.style.display = 'block';
+    resultDiv.innerHTML = `
+        <div class="pill-analyzing">
+            <div class="pill-scan-animation"></div>
+            <p>La IA está analizando ${pillImages.length > 1 ? 'las pastillas' : 'la pastilla'}...</p>
+        </div>`;
+
+    try {
+        const r = await fetch(`${API}/identificar_pastilla`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ imagenes_base64: pillImages.map(i => i.base64) })
+        });
+        const data = await r.json();
+
+        if (data.error) {
+            resultDiv.innerHTML = `<div class="pill-error">${data.error}</div>`;
+            return;
+        }
+
+        const p = data.resultado;
+        const confianzaColor = p.confianza === 'alta' ? '#10b981' : p.confianza === 'media' ? '#f59e0b' : '#ef4444';
+        const confianzaLabel = p.confianza === 'alta' ? 'Alta confianza' : p.confianza === 'media' ? 'Confianza media' : 'Baja confianza';
+
+        resultDiv.innerHTML = `
+            <div class="pill-result-card">
+                <div class="pill-result-header">
+                    <div>
+                        <h3 class="pill-result-name">${p.nombre || 'No identificado'}</h3>
+                        <p class="pill-result-activo">${p.principio_activo || ''}</p>
+                    </div>
+                    <span class="pill-confianza-badge" style="background:${confianzaColor}20;color:${confianzaColor};border:1px solid ${confianzaColor}40;">
+                        ${confianzaLabel}
+                    </span>
+                </div>
+
+                <div class="pill-result-grid">
+                    ${p.descripcion ? `<div class="pill-info-block"><span class="pill-info-label">¿Para qué sirve?</span><p>${p.descripcion}</p></div>` : ''}
+                    <div class="pill-info-row">
+                        ${p.forma ? `<div class="pill-info-chip"><i data-lucide="pill" style="width:14px;height:14px;"></i> ${p.forma}</div>` : ''}
+                        ${p.color ? `<div class="pill-info-chip"><i data-lucide="palette" style="width:14px;height:14px;"></i> ${p.color}</div>` : ''}
+                        ${p.grabado && p.grabado !== 'N/A' ? `<div class="pill-info-chip"><i data-lucide="type" style="width:14px;height:14px;"></i> ${p.grabado}</div>` : ''}
+                        ${p.laboratorio && p.laboratorio !== 'Desconocido' ? `<div class="pill-info-chip"><i data-lucide="building-2" style="width:14px;height:14px;"></i> ${p.laboratorio}</div>` : ''}
+                    </div>
+                    ${p.advertencia ? `<div class="pill-info-warning"><i data-lucide="alert-triangle" style="width:14px;height:14px;"></i> ${p.advertencia}</div>` : ''}
+                </div>
+
+                ${p.buscar ? `
+                <button class="btn-premium pill-compare-btn" onclick="buscarDesdeIdentificador('${p.buscar.replace(/'/g, "\\'")}')">
+                    <i data-lucide="bar-chart-2"></i> Comparar precios de "${p.buscar}" en farmacias
+                </button>` : ''}
+            </div>`;
+
+        lucide.createIcons();
+
+    } catch {
+        resultDiv.innerHTML = `<div class="pill-error">No se pudo conectar con el servidor.</div>`;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i data-lucide="search"></i> Identificar medicamento';
+        lucide.createIcons();
+    }
+}
+
+function buscarDesdeIdentificador(termino) {
+    const searchInput = document.getElementById('manual-search');
+    searchInput.value = termino;
+    const navBtns = document.querySelectorAll('.nav-btn');
+    navBtns.forEach(b => {
+        if (b.textContent.trim().includes('Comparador')) {
+            showSection('search', b);
+        }
+    });
+    startScraping();
+}
+
+// =========================================================
+// PANEL DE ADMINISTRADOR
+// =========================================================
+async function abrirAdmin(btn) {
+    showSection('admin', btn);
+    await cargarStats();
+    await cargarUsuarios();
+}
+
+function adminTab(tab, btn) {
+    document.querySelectorAll('.admin-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    ['usuarios', 'historial', 'medicamentos'].forEach(t => {
+        document.getElementById('admin-panel-' + t).style.display = (t === tab) ? 'block' : 'none';
+    });
+    if (tab === 'usuarios') cargarUsuarios();
+    if (tab === 'historial') cargarHistorialAdmin();
+    if (tab === 'medicamentos') cargarMedicamentosAdmin();
+}
+
+async function cargarStats() {
+    try {
+        const r = await fetch(`${API}/admin/stats`, { headers: authHeaders() });
+        if (!r.ok) return;
+        const s = await r.json();
+        document.getElementById('stat-usuarios').textContent = s.usuarios;
+        document.getElementById('stat-admins').textContent = s.admins;
+        document.getElementById('stat-meds').textContent = s.medicamentos;
+        document.getElementById('stat-busquedas').textContent = s.busquedas;
+    } catch (e) { console.error(e); }
+}
+
+// ---- USUARIOS ----
+async function cargarUsuarios() {
+    const cont = document.getElementById('admin-panel-usuarios');
+    cont.innerHTML = '<p class="admin-loading">Cargando usuarios...</p>';
+    try {
+        const r = await fetch(`${API}/admin/usuarios`, { headers: authHeaders() });
+        if (!r.ok) { cont.innerHTML = '<p class="admin-loading">Acceso denegado.</p>'; return; }
+        const usuarios = await r.json();
+
+        let html = `<table class="admin-table">
+            <thead><tr><th>ID</th><th>Nombre</th><th>Correo</th><th>Rol</th><th style="text-align:right;">Acciones</th></tr></thead><tbody>`;
+        usuarios.forEach(u => {
+            html += `<tr>
+                <td>${u.id}</td>
+                <td>${u.nombre}</td>
+                <td>${u.correo}</td>
+                <td>${u.es_admin ? '<span class="badge badge-admin">Admin</span>' : '<span class="badge badge-normal">Usuario</span>'}</td>
+                <td style="text-align:right;white-space:nowrap;">
+                    <button class="admin-btn-icon" title="Editar"
+                        onclick='abrirModalUsuario(${JSON.stringify(u)})'><i data-lucide="edit"></i></button>
+                    <button class="admin-btn-icon danger" title="Eliminar"
+                        onclick="eliminarUsuario(${u.id}, '${u.nombre.replace(/'/g, "")}')"><i data-lucide="trash-2"></i></button>
+                </td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        cont.innerHTML = html;
+        lucide.createIcons();
+    } catch (e) {
+        cont.innerHTML = '<p class="admin-loading">Error de conexión.</p>';
+    }
+}
+
+function abrirModalUsuario(u) {
+    document.getElementById('edit-user-id').value = u.id;
+    document.getElementById('edit-user-nombre').value = u.nombre;
+    document.getElementById('edit-user-correo').value = u.correo;
+    document.getElementById('edit-user-password').value = '';
+    document.getElementById('edit-user-admin').checked = !!u.es_admin;
+    document.getElementById('edit-user-alert').style.display = 'none';
+    document.getElementById('edit-user-modal').style.display = 'flex';
+    lucide.createIcons();
+}
+
+function cerrarModalUsuario() {
+    document.getElementById('edit-user-modal').style.display = 'none';
+}
+
+async function guardarUsuario() {
+    const id       = document.getElementById('edit-user-id').value;
+    const nombre   = document.getElementById('edit-user-nombre').value.trim();
+    const correo   = document.getElementById('edit-user-correo').value.trim();
+    const password = document.getElementById('edit-user-password').value;
+    const es_admin = document.getElementById('edit-user-admin').checked;
+    const alertEl  = document.getElementById('edit-user-alert');
+
+    try {
+        const r = await fetch(`${API}/admin/usuarios/${id}`, {
+            method: 'PUT',
+            headers: authHeaders(),
+            body: JSON.stringify({ nombre, correo, password, es_admin })
+        });
+        const data = await r.json();
+        if (!r.ok) {
+            alertEl.textContent = data.error || 'Error al guardar.';
+            alertEl.style.display = 'block';
+            return;
+        }
+        cerrarModalUsuario();
+        await cargarStats();
+        await cargarUsuarios();
+    } catch {
+        alertEl.textContent = 'Error de conexión con el servidor.';
+        alertEl.style.display = 'block';
+    }
+}
+
+async function eliminarUsuario(id, nombre) {
+    if (!confirm(`¿Eliminar al usuario "${nombre}"? Esta acción no se puede deshacer.`)) return;
+    try {
+        const r = await fetch(`${API}/admin/usuarios/${id}`, { method: 'DELETE', headers: authHeaders() });
+        const data = await r.json();
+        if (!r.ok) { alert(data.error || 'No se pudo eliminar.'); return; }
+        await cargarStats();
+        await cargarUsuarios();
+    } catch { alert('Error de conexión.'); }
+}
+
+// ---- HISTORIAL ----
+async function cargarHistorialAdmin() {
+    const cont = document.getElementById('admin-panel-historial');
+    cont.innerHTML = '<p class="admin-loading">Cargando historial...</p>';
+    try {
+        const r = await fetch(`${API}/admin/historial`, { headers: authHeaders() });
+        if (!r.ok) { cont.innerHTML = '<p class="admin-loading">Acceso denegado.</p>'; return; }
+        const rows = await r.json();
+        if (rows.length === 0) { cont.innerHTML = '<p class="admin-loading">Sin registros todavía.</p>'; return; }
+
+        let html = `<table class="admin-table">
+            <thead><tr><th>Buscado</th><th>Farmacia</th><th>Producto</th><th>Precio</th><th>Usuario</th><th>Fecha</th><th></th></tr></thead><tbody>`;
+        rows.forEach(h => {
+            html += `<tr>
+                <td>${h.buscado}</td>
+                <td>${h.farmacia}</td>
+                <td style="max-width:200px;">${h.producto}</td>
+                <td style="color:#10b981;font-weight:600;">$${Number(h.precio).toLocaleString('es-CL')}</td>
+                <td>${h.usuario}</td>
+                <td style="font-size:0.8rem;color:var(--text-muted);">${h.fecha ? h.fecha.substring(0,16) : ''}</td>
+                <td style="text-align:right;">
+                    <button class="admin-btn-icon danger" title="Eliminar"
+                        onclick="eliminarHistorial(${h.id})"><i data-lucide="trash-2"></i></button>
+                </td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        cont.innerHTML = html;
+        lucide.createIcons();
+    } catch {
+        cont.innerHTML = '<p class="admin-loading">Error de conexión.</p>';
+    }
+}
+
+async function eliminarHistorial(id) {
+    if (!confirm('¿Eliminar este registro del historial?')) return;
+    try {
+        const r = await fetch(`${API}/admin/historial/${id}`, { method: 'DELETE', headers: authHeaders() });
+        if (!r.ok) { alert('No se pudo eliminar.'); return; }
+        await cargarStats();
+        await cargarHistorialAdmin();
+    } catch { alert('Error de conexión.'); }
+}
+
+// ---- MEDICAMENTOS ----
+async function cargarMedicamentosAdmin() {
+    const cont = document.getElementById('admin-panel-medicamentos');
+    cont.innerHTML = '<p class="admin-loading">Cargando medicamentos...</p>';
+    try {
+        const r = await fetch(`${API}/admin/medicamentos`, { headers: authHeaders() });
+        if (!r.ok) { cont.innerHTML = '<p class="admin-loading">Acceso denegado.</p>'; return; }
+        const meds = await r.json();
+        if (meds.length === 0) { cont.innerHTML = '<p class="admin-loading">Catálogo vacío.</p>'; return; }
+
+        let html = `<table class="admin-table">
+            <thead><tr><th>ID</th><th>Medicamento</th><th>Búsquedas registradas</th><th style="text-align:right;">Acciones</th></tr></thead><tbody>`;
+        meds.forEach(m => {
+            html += `<tr>
+                <td>${m.id}</td>
+                <td style="text-transform:uppercase;font-weight:500;">${m.nombre}</td>
+                <td>${m.busquedas}</td>
+                <td style="text-align:right;">
+                    <button class="admin-btn-icon danger" title="Eliminar"
+                        onclick="eliminarMedicamento(${m.id}, '${m.nombre.replace(/'/g, "")}')"><i data-lucide="trash-2"></i></button>
+                </td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        cont.innerHTML = html;
+        lucide.createIcons();
+    } catch {
+        cont.innerHTML = '<p class="admin-loading">Error de conexión.</p>';
+    }
+}
+
+async function eliminarMedicamento(id, nombre) {
+    if (!confirm(`¿Eliminar "${nombre}" y todo su historial asociado?`)) return;
+    try {
+        const r = await fetch(`${API}/admin/medicamentos/${id}`, { method: 'DELETE', headers: authHeaders() });
+        if (!r.ok) { alert('No se pudo eliminar.'); return; }
+        await cargarStats();
+        await cargarMedicamentosAdmin();
+    } catch { alert('Error de conexión.'); }
 }
