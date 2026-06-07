@@ -181,6 +181,9 @@ function mostrarApp(usuario) {
     const navAdmin = document.getElementById('nav-admin-btn');
     if (navAdmin) navAdmin.style.display = usuario.es_admin ? 'flex' : 'none';
 
+    // Cargar historial de chat persistente
+    cargarChatHistorial();
+
     lucide.createIcons();
 }
 
@@ -199,8 +202,69 @@ function showSection(id, btn) {
     document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active-section'));
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
     document.getElementById(id + '-section').classList.add('active-section');
-    btn.classList.add('active');
+    if (btn) btn.classList.add('active');
 }
+
+function irAlInicio() {
+    const homeBtn = document.querySelector('.nav-btn');
+    showSection('home', homeBtn);
+    cargarMedicamentosPopulares();
+}
+
+function irASeccion(id) {
+    const btns = document.querySelectorAll('.nav-btn');
+    let targetBtn = null;
+    btns.forEach(b => {
+        const sectionMap = {
+            'home': 'Inicio', 'chat': 'Mathew', 'search': 'Comparador',
+            'identificador': 'Identificador', 'history': 'Historial', 'map': 'Mapa'
+        };
+        if (b.textContent.trim().includes(sectionMap[id] || '')) targetBtn = b;
+    });
+    showSection(id, targetBtn);
+}
+
+// =========================================================
+// PÁGINA DE INICIO — CARRUSEL DE MEDICAMENTOS POPULARES
+// =========================================================
+async function cargarMedicamentosPopulares() {
+    const carousel = document.getElementById('home-carousel');
+    const emptyEl = document.getElementById('carousel-empty');
+    try {
+        const r = await fetch(`${API}/medicamentos_populares`);
+        const meds = await r.json();
+        if (!meds || meds.length === 0) {
+            if (emptyEl) emptyEl.style.display = 'flex';
+            return;
+        }
+        if (emptyEl) emptyEl.style.display = 'none';
+
+        let html = '';
+        meds.forEach(m => {
+            const precioFormateado = m.precio_min ? `$${m.precio_min.toLocaleString('es-CL')}` : '—';
+            html += `<div class="carousel-card" onclick="irASeccion('search'); setTimeout(()=>{ document.getElementById('manual-search').value='${m.nombre}'; }, 100);">
+                <div class="carousel-card-price">${precioFormateado} <span>CLP</span></div>
+                <div class="carousel-card-name">${m.nombre.toUpperCase()}</div>
+                <div class="carousel-card-farm" style="color:${m.color || 'var(--text-muted)'};">
+                    <span class="carousel-dot" style="background:${m.color};"></span>
+                    ${m.farmacia || 'Sin datos'}
+                </div>
+                <div class="carousel-card-badge">${m.busquedas} búsqueda${m.busquedas !== 1 ? 's' : ''}</div>
+            </div>`;
+        });
+        carousel.innerHTML = html;
+    } catch (e) {
+        console.error("Error cargando populares:", e);
+    }
+}
+
+function scrollCarousel(dir) {
+    const c = document.getElementById('home-carousel');
+    c.scrollBy({ left: dir * 280, behavior: 'smooth' });
+}
+
+// Cargar populares al inicio
+document.addEventListener('DOMContentLoaded', () => { setTimeout(cargarMedicamentosPopulares, 500); });
 
 // =========================================================
 // ARCHIVOS ADJUNTOS
@@ -226,6 +290,215 @@ function clearFile() {
 }
 
 // =========================================================
+// HISTORIAL DE CHAT PERSISTENTE
+// =========================================================
+async function cargarChatHistorial() {
+    if (!getToken()) return;
+    try {
+        const r = await fetch(`${API}/chat/historial`, { headers: authHeaders() });
+        if (!r.ok) return;
+        const mensajes = await r.json();
+        if (mensajes.length === 0) return;
+
+        const box = document.getElementById('chat-box');
+        box.innerHTML = '';
+
+        mensajes.forEach(m => {
+            if (m.rol === 'user') {
+                box.innerHTML += renderUserMsg(m.mensaje, m.fecha);
+            } else {
+                box.innerHTML += renderBotMsg(marked.parse(m.mensaje), m.fecha);
+            }
+        });
+
+        box.scrollTop = box.scrollHeight;
+        lucide.createIcons();
+    } catch (e) {
+        console.error("Error cargando historial de chat:", e);
+    }
+}
+
+function escapeHtml(text) {
+    const d = document.createElement('div');
+    d.textContent = text;
+    return d.innerHTML;
+}
+
+async function limpiarChatHistorial() {
+    if (!confirm('¿Eliminar todo el historial de conversación con Mathew?')) return;
+    try {
+        if (getToken()) {
+            await fetch(`${API}/chat/historial`, { method: 'DELETE', headers: authHeaders() });
+        }
+    } catch (_) {}
+    const box = document.getElementById('chat-box');
+    box.innerHTML = renderBotMsg('¡Historial limpiado! ¿En qué puedo ayudarte ahora?');
+    lucide.createIcons();
+}
+
+// =========================================================
+// ENTRADA POR VOZ (Web Speech API)
+// =========================================================
+let reconocimientoVoz = null;
+let vozActiva = false;
+
+function initVoz() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+        // Navegador no soporta Web Speech API — ocultar botón de mic
+        const micBtn = document.getElementById('btn-mic');
+        if (micBtn) micBtn.style.display = 'none';
+        return;
+    }
+
+    reconocimientoVoz = new SpeechRecognition();
+    reconocimientoVoz.lang = 'es-CL';        // español chileno
+    reconocimientoVoz.continuous = false;      // se detiene tras una frase
+    reconocimientoVoz.interimResults = true;   // muestra texto parcial mientras habla
+
+    reconocimientoVoz.onresult = (event) => {
+        let texto = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+            texto += event.results[i][0].transcript;
+        }
+        document.getElementById('chat-input').value = texto;
+    };
+
+    reconocimientoVoz.onend = () => {
+        vozActiva = false;
+        actualizarUIVoz(false);
+        // Si hay texto reconocido, enviar automáticamente
+        const input = document.getElementById('chat-input');
+        if (input.value.trim()) {
+            enviarMensaje();
+        }
+    };
+
+    reconocimientoVoz.onerror = (event) => {
+        console.log('Error de reconocimiento de voz:', event.error);
+        vozActiva = false;
+        actualizarUIVoz(false);
+        if (event.error === 'not-allowed') {
+            alert('Permiso de micrófono denegado. Habilítalo en la configuración del navegador.');
+        }
+    };
+}
+
+function toggleVoz() {
+    if (!reconocimientoVoz) {
+        initVoz();
+        if (!reconocimientoVoz) {
+            alert('Tu navegador no soporta entrada por voz. Usa Chrome para esta función.');
+            return;
+        }
+    }
+
+    if (vozActiva) {
+        detenerVoz();
+    } else {
+        vozActiva = true;
+        actualizarUIVoz(true);
+        document.getElementById('chat-input').value = '';
+        reconocimientoVoz.start();
+    }
+}
+
+function detenerVoz() {
+    if (reconocimientoVoz && vozActiva) {
+        reconocimientoVoz.stop();
+    }
+    vozActiva = false;
+    actualizarUIVoz(false);
+}
+
+function actualizarUIVoz(activa) {
+    const micBtn = document.getElementById('btn-mic');
+    const indicator = document.getElementById('voice-indicator');
+    const micIcon = document.getElementById('mic-icon');
+
+    if (activa) {
+        micBtn.classList.add('mic-active');
+        indicator.style.display = 'flex';
+        micIcon.setAttribute('data-lucide', 'mic-off');
+    } else {
+        micBtn.classList.remove('mic-active');
+        indicator.style.display = 'none';
+        micIcon.setAttribute('data-lucide', 'mic');
+    }
+    lucide.createIcons();
+}
+
+// Inicializar voz al cargar
+document.addEventListener('DOMContentLoaded', () => { initVoz(); });
+
+// =========================================================
+// GEOLOCALIZACIÓN DEL USUARIO (para contexto de Mathew)
+// =========================================================
+let userLat = null, userLng = null;
+
+function obtenerUbicacion() {
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            pos => { userLat = pos.coords.latitude; userLng = pos.coords.longitude; },
+            () => { /* permiso denegado — no pasa nada, Mathew funciona sin ubicación */ },
+            { timeout: 5000 }
+        );
+    }
+}
+document.addEventListener('DOMContentLoaded', obtenerUbicacion);
+
+// =========================================================
+// HELPERS DE RENDERIZADO DE CHAT
+// =========================================================
+function getTimeStr(fecha) {
+    if (fecha) {
+        // fecha viene como "2026-06-06 20:51:45"
+        const parts = fecha.substring(11, 16);
+        if (parts && parts.includes(':')) return parts;
+    }
+    const now = new Date();
+    return now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+}
+
+function getUserInitials() {
+    const el = document.getElementById('user-avatar-initials');
+    return el ? el.textContent : '?';
+}
+
+function renderUserMsg(text, fecha) {
+    return `<div class="chat-msg chat-msg-user">
+        <div class="chat-msg-content">
+            <div class="chat-bubble chat-bubble-user">${escapeHtml(text)}</div>
+            <span class="chat-ts">${getTimeStr(fecha)}</span>
+        </div>
+        <div class="chat-avatar chat-avatar-user">${getUserInitials()}</div>
+    </div>`;
+}
+
+function renderBotMsg(htmlContent, fecha) {
+    return `<div class="chat-msg chat-msg-bot">
+        <div class="chat-avatar chat-avatar-bot"><i data-lucide="bot"></i></div>
+        <div class="chat-msg-content">
+            <span class="chat-sender-name">Mathew</span>
+            <div class="chat-bubble chat-bubble-bot">${htmlContent}</div>
+            <span class="chat-ts">${getTimeStr(fecha)}</span>
+        </div>
+    </div>`;
+}
+
+function renderBotLoading() {
+    return `<div class="chat-msg chat-msg-bot" id="chat-loading-msg">
+        <div class="chat-avatar chat-avatar-bot"><i data-lucide="bot"></i></div>
+        <div class="chat-msg-content">
+            <span class="chat-sender-name">Mathew</span>
+            <div class="chat-bubble chat-bubble-bot chat-typing">
+                <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>
+            </div>
+        </div>
+    </div>`;
+}
+
+// =========================================================
 // MATHEW IA — sin autenticación requerida
 // =========================================================
 async function enviarMensaje() {
@@ -235,40 +508,52 @@ async function enviarMensaje() {
     if (!prompt && !base64File) return;
 
     const userMsg = prompt || "🖼️ Imagen de Receta Médica enviada";
-    box.innerHTML += `<div class="message message-user"><b>Tú:</b> ${userMsg}</div>`;
+    box.innerHTML += renderUserMsg(userMsg);
     inp.value = "";
     box.scrollTop = box.scrollHeight;
 
     inp.disabled = true;
-    const sendBtn = inp.nextElementSibling;
+    const sendBtn = document.querySelector('.chat-input-wrapper .btn-premium');
     if (sendBtn) sendBtn.disabled = true;
 
     const fileToSend = base64File;
     clearFile();
 
-    const loadingDiv = document.createElement('div');
-    loadingDiv.className = 'message message-mathew loading-msg';
-    loadingDiv.innerHTML = '⚡ <i>Mathew está analizando los registros...</i>';
-    box.appendChild(loadingDiv);
+    // Mostrar indicador de escritura
+    box.innerHTML += renderBotLoading();
+    lucide.createIcons();
     box.scrollTop = box.scrollHeight;
 
     try {
-        // No requiere token — headers sin Authorization
+        const payload = {
+            pregunta: prompt,
+            contexto_precios: ultimosResultados,
+            archivo_base64: fileToSend
+        };
+        // Incluir ubicación si la tenemos
+        if (userLat && userLng) {
+            payload.latitud = userLat;
+            payload.longitud = userLng;
+        }
+
         const r = await fetch(`${API}/consultar_asistente`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ pregunta: prompt, contexto_precios: ultimosResultados, archivo_base64: fileToSend })
+            headers: authHeaders(),
+            body: JSON.stringify(payload)
         });
         const data = await r.json();
-        loadingDiv.remove();
-        const respuestaDiv = document.createElement('div');
-        respuestaDiv.className = 'message message-mathew';
-        respuestaDiv.innerHTML = `<b>Mathew:</b> ${marked.parse(data.respuesta)}`;
-        box.appendChild(respuestaDiv);
+        // Quitar indicador de escritura
+        const loadEl = document.getElementById('chat-loading-msg');
+        if (loadEl) loadEl.remove();
+        // Renderizar respuesta con el nuevo formato
+        box.innerHTML += renderBotMsg(marked.parse(data.respuesta));
+        lucide.createIcons();
         box.scrollTop = box.scrollHeight;
     } catch {
-        loadingDiv.remove();
-        box.innerHTML += `<div class="message message-mathew" style="color:var(--text-muted);">No se pudo conectar con Mathew.</div>`;
+        const loadEl = document.getElementById('chat-loading-msg');
+        if (loadEl) loadEl.remove();
+        box.innerHTML += renderBotMsg('<span style="color:var(--text-muted);">No se pudo conectar con Mathew.</span>');
+        lucide.createIcons();
     } finally {
         inp.disabled = false;
         if (sendBtn) sendBtn.disabled = false;
