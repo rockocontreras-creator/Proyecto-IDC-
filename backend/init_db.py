@@ -59,9 +59,27 @@ def inicializar_nuevo_esquema():
     ]
     cursor.executemany("INSERT INTO farmacias (id_farmacias, nombre_farmacia, color_distintivo) VALUES (?,?,?)", farmacias_data)
 
+    print("Creando tablas de chat y alertas...")
+    cursor.execute('''CREATE TABLE chat_historial (
+                        id_chat INTEGER PRIMARY KEY AUTOINCREMENT,
+                        id_usuario INTEGER NOT NULL,
+                        rol TEXT NOT NULL,
+                        mensaje TEXT NOT NULL,
+                        fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY(id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE)''')
+
+    cursor.execute('''CREATE TABLE alertas_precio (
+                        id_alerta INTEGER PRIMARY KEY AUTOINCREMENT,
+                        id_usuario INTEGER NOT NULL,
+                        medicamento TEXT NOT NULL,
+                        umbral_precio INTEGER NOT NULL,
+                        activa INTEGER DEFAULT 1,
+                        fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY(id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE)''')
+
     conn.commit()
     conn.close()
-    print("¡Base de datos armada y sincronizada con éxito según el nuevo diagrama!")
+    print("¡Base de datos completa!")
 
 if __name__ == '__main__':
     inicializar_nuevo_esquema()
