@@ -220,7 +220,8 @@ function irASeccion(id) {
     btns.forEach(b => {
         const sectionMap = {
             'home': 'Inicio', 'chat': 'Mathew', 'search': 'Comparador',
-            'identificador': 'Identificador', 'history': 'Historial', 'map': 'Mapa'
+            'identificador': 'Identificador', 'optimizador': 'Optimizador',
+            'history': 'Historial', 'map': 'Mapa'
         };
         if (b.textContent.trim().includes(sectionMap[id] || '')) targetBtn = b;
     });
@@ -1499,4 +1500,282 @@ async function eliminarAlertaYRefrescar(id) {
         abrirGestionAlertas();
         verificarAlertas();
     } catch { }
+}
+
+// =========================================================
+// OPTIMIZADOR DE RECETA COMPLETA
+// =========================================================
+let optBase64 = null;
+let optMedicamentos = [];
+
+function optFileSelected(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+        optBase64 = ev.target.result.split(',')[1];
+        const img = document.getElementById('opt-preview-img');
+        img.src = ev.target.result;
+        img.style.display = 'block';
+        document.getElementById('opt-placeholder').style.display = 'none';
+        document.getElementById('opt-extract-btn').disabled = false;
+        document.getElementById('opt-clear-btn').style.display = 'inline-flex';
+    };
+    reader.readAsDataURL(file);
+}
+
+function limpiarOptimizador() {
+    optBase64 = null;
+    optMedicamentos = [];
+    document.getElementById('opt-file-input').value = '';
+    document.getElementById('opt-preview-img').style.display = 'none';
+    document.getElementById('opt-placeholder').style.display = 'flex';
+    document.getElementById('opt-extract-btn').disabled = true;
+    document.getElementById('opt-clear-btn').style.display = 'none';
+    document.getElementById('opt-step-meds').style.display = 'none';
+    document.getElementById('opt-step-results').style.display = 'none';
+}
+
+async function extraerReceta() {
+    if (!optBase64) return;
+    const btn = document.getElementById('opt-extract-btn');
+    const medsDiv = document.getElementById('opt-step-meds');
+    btn.disabled = true;
+    btn.innerHTML = '<div class="auth-spinner"></div> Analizando receta...';
+
+    try {
+        const r = await fetch(`${API}/extraer_receta`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ imagen_base64: optBase64 })
+        });
+        const data = await r.json();
+
+        if (data.error || !data.medicamentos || data.medicamentos.length === 0) {
+            medsDiv.innerHTML = `<div class="pill-error" style="margin-top:16px;">No se pudieron extraer medicamentos de la receta. Intenta con una foto más nítida.</div>`;
+            medsDiv.style.display = 'block';
+            return;
+        }
+
+        optMedicamentos = data.medicamentos;
+
+        let html = `<div class="opt-meds-card">
+            <h3>Medicamentos detectados en la receta</h3>
+            <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:12px;">Puedes editar los nombres antes de buscar. Elimina los que no necesites.</p>
+            <div class="opt-meds-list">`;
+
+        optMedicamentos.forEach((m, i) => {
+            html += `<div class="opt-med-row" id="opt-med-${i}">
+                <span class="opt-med-num">${i + 1}</span>
+                <input type="text" class="input-premium opt-med-input" value="${m.buscar || m.nombre}" data-index="${i}">
+                <button class="pill-clear-btn" onclick="document.getElementById('opt-med-${i}').remove()" style="display:inline-flex;padding:6px 10px;">
+                    <i data-lucide="x" style="width:14px;height:14px;"></i>
+                </button>
+            </div>`;
+        });
+
+        html += `</div>
+            <button class="btn-premium" style="margin-top:16px;width:100%;justify-content:center;" onclick="optimizarPrecios()">
+                <i data-lucide="zap"></i> Buscar precios y optimizar
+            </button>
+        </div>`;
+
+        medsDiv.innerHTML = html;
+        medsDiv.style.display = 'block';
+        lucide.createIcons();
+    } catch {
+        medsDiv.innerHTML = `<div class="pill-error" style="margin-top:16px;">Error al conectar con el servidor.</div>`;
+        medsDiv.style.display = 'block';
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i data-lucide="scan"></i> Extraer medicamentos';
+        lucide.createIcons();
+    }
+}
+
+async function optimizarPrecios() {
+    // Recopilar los nombres editados de los inputs
+    const inputs = document.querySelectorAll('.opt-med-input');
+    const nombres = Array.from(inputs).map(inp => inp.value.trim()).filter(n => n);
+
+    if (nombres.length === 0) {
+        alert('No hay medicamentos para buscar.');
+        return;
+    }
+
+    if (!getToken()) { pedirLogin(); return; }
+
+    const resultsDiv = document.getElementById('opt-step-results');
+    resultsDiv.style.display = 'block';
+    resultsDiv.innerHTML = `<div class="opt-progress">
+        <h3>Buscando precios en 4 farmacias...</h3>
+        <div class="opt-progress-list" id="opt-progress-list"></div>
+    </div>`;
+
+    // Crear indicadores de progreso por medicamento
+    const progressList = document.getElementById('opt-progress-list');
+    nombres.forEach(n => {
+        progressList.innerHTML += `<div class="opt-progress-item" id="opt-prog-${n.replace(/\s/g,'-')}">
+            <div class="auth-spinner" style="width:14px;height:14px;border-width:2px;"></div>
+            <span>${n}</span>
+        </div>`;
+    });
+
+    // Scraping en paralelo: todos los medicamentos al mismo tiempo
+    const todosResultadosReceta = {};
+
+    const promesas = nombres.map(async (nombre) => {
+        try {
+            const r = await fetch(`${API}/scraping_manual`, {
+                method: 'POST',
+                headers: authHeaders(),
+                body: JSON.stringify({ remedio: nombre })
+            });
+            const data = await r.json();
+            todosResultadosReceta[nombre] = data.precios || [];
+
+            // Actualizar progreso
+            const progEl = document.getElementById(`opt-prog-${nombre.replace(/\s/g,'-')}`);
+            if (progEl) {
+                const count = (data.precios || []).length;
+                progEl.innerHTML = `<span style="color:#10b981;">✓</span> <span>${nombre}</span> <span style="color:var(--text-muted);font-size:0.8rem;">(${count} resultados)</span>`;
+            }
+        } catch {
+            todosResultadosReceta[nombre] = [];
+            const progEl = document.getElementById(`opt-prog-${nombre.replace(/\s/g,'-')}`);
+            if (progEl) progEl.innerHTML = `<span style="color:#ef4444;">✗</span> <span>${nombre}</span> <span style="color:var(--text-muted);font-size:0.8rem;">(error)</span>`;
+        }
+    });
+
+    await Promise.all(promesas);
+
+    // Calcular optimización
+    mostrarOptimizacion(todosResultadosReceta);
+}
+
+function mostrarOptimizacion(resultadosPorMed) {
+    const resultsDiv = document.getElementById('opt-step-results');
+    const meds = Object.keys(resultadosPorMed);
+    const parseP = str => parseInt(String(str).replace(/\D/g, ''), 10) || Infinity;
+
+    // Para cada medicamento, encontrar el más barato por farmacia
+    const mejorPorMed = {};
+    const farmacias = ['Ahumada', 'Dr. Simi', 'Salcobrand', 'Cruz Verde'];
+
+    meds.forEach(med => {
+        const resultados = resultadosPorMed[med];
+        if (!resultados || resultados.length === 0) {
+            mejorPorMed[med] = { mejor: null, porFarmacia: {} };
+            return;
+        }
+        const porFarmacia = {};
+        resultados.forEach(r => {
+            const val = parseP(r.precio);
+            if (!porFarmacia[r.farmacia] || val < parseP(porFarmacia[r.farmacia].precio)) {
+                porFarmacia[r.farmacia] = { ...r, val };
+            }
+        });
+        const mejor = Object.values(porFarmacia).sort((a, b) => a.val - b.val)[0];
+        mejorPorMed[med] = { mejor, porFarmacia };
+    });
+
+    // Estrategia 1: Compra óptima (el más barato de cada med, sin importar farmacia)
+    let totalOptimo = 0;
+    const detalleOptimo = [];
+    meds.forEach(med => {
+        const m = mejorPorMed[med];
+        if (m.mejor) {
+            totalOptimo += m.mejor.val;
+            detalleOptimo.push({ med, farmacia: m.mejor.farmacia, precio: m.mejor.val, color: m.mejor.color, nombre: m.mejor.nombre });
+        }
+    });
+
+    // Estrategia 2: Mejor farmacia única
+    const totalesPorFarmacia = {};
+    farmacias.forEach(f => {
+        let total = 0;
+        let completa = true;
+        meds.forEach(med => {
+            const m = mejorPorMed[med];
+            if (m.porFarmacia[f]) {
+                total += m.porFarmacia[f].val;
+            } else {
+                completa = false;
+            }
+        });
+        if (completa) totalesPorFarmacia[f] = total;
+    });
+
+    const mejorFarmaciaUnica = Object.entries(totalesPorFarmacia).sort((a, b) => a[1] - b[1])[0];
+    const ahorro = mejorFarmaciaUnica ? mejorFarmaciaUnica[1] - totalOptimo : 0;
+
+    // Renderizar resultados
+    let html = `<div class="opt-result-card">
+        <h3>Resultado de la optimización</h3>
+
+        <div class="opt-strategies">
+            <div class="opt-strategy opt-strategy-best">
+                <div class="opt-strat-header">
+                    <span class="opt-strat-badge best">💰 Compra óptima</span>
+                    <span class="opt-strat-total">$${totalOptimo.toLocaleString('es-CL')} <small>CLP</small></span>
+                </div>
+                <p class="opt-strat-desc">Comprando lo más barato de cada medicamento en distintas farmacias.</p>
+                <div class="opt-strat-items">`;
+
+    detalleOptimo.forEach(d => {
+        html += `<div class="opt-strat-item">
+            <div class="carousel-dot" style="background:${d.color};"></div>
+            <span class="opt-item-med">${d.med}</span>
+            <span class="opt-item-farm" style="color:${d.color};">${d.farmacia}</span>
+            <span class="opt-item-price">$${d.precio.toLocaleString('es-CL')}</span>
+        </div>`;
+    });
+
+    html += `</div></div>`;
+
+    if (mejorFarmaciaUnica) {
+        html += `<div class="opt-strategy">
+            <div class="opt-strat-header">
+                <span class="opt-strat-badge single">🏪 Mejor farmacia única</span>
+                <span class="opt-strat-total">$${mejorFarmaciaUnica[1].toLocaleString('es-CL')} <small>CLP</small></span>
+            </div>
+            <p class="opt-strat-desc">Comprando todo en <strong>${mejorFarmaciaUnica[0]}</strong> (sin tener que ir a varias).</p>
+        </div>`;
+    }
+
+    if (ahorro > 0) {
+        html += `<div class="opt-savings">
+            <i data-lucide="trending-down" style="width:20px;height:20px;"></i>
+            <span>Ahorras <strong>$${ahorro.toLocaleString('es-CL')} CLP</strong> comprando en la combinación óptima vs todo en ${mejorFarmaciaUnica[0]}.</span>
+        </div>`;
+    }
+
+    html += `</div>
+
+        <div class="opt-full-table">
+            <h4>Detalle por medicamento y farmacia</h4>
+            <div class="results-table-wrapper"><table class="results-table">
+                <thead><tr><th>Medicamento</th>`;
+    farmacias.forEach(f => { html += `<th style="text-align:center;">${f}</th>`; });
+    html += `</tr></thead><tbody>`;
+
+    meds.forEach(med => {
+        html += `<tr><td><strong>${med}</strong></td>`;
+        farmacias.forEach(f => {
+            const m = mejorPorMed[med];
+            if (m.porFarmacia[f]) {
+                const esMejor = m.mejor && m.mejor.farmacia === f;
+                html += `<td style="text-align:center;${esMejor ? 'font-weight:800;color:#10b981;' : ''}">$${m.porFarmacia[f].val.toLocaleString('es-CL')}</td>`;
+            } else {
+                html += `<td style="text-align:center;color:var(--text-muted);">—</td>`;
+            }
+        });
+        html += `</tr>`;
+    });
+
+    html += `</tbody></table></div></div>`;
+    html += `</div>`;
+
+    resultsDiv.innerHTML = html;
+    lucide.createIcons();
 }
