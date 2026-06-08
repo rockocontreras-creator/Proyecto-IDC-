@@ -105,13 +105,23 @@ def init_db():
     ]
     cursor.executemany("INSERT OR IGNORE INTO farmacias (id_farmacias, nombre_farmacia, color_distintivo) VALUES (?,?,?)", farmacias_data)
 
-    # 5. Tabla de historial de chat (persistencia de conversaciones con Mathew)
+    # 5. Tabla de historial de chat
     cursor.execute('''CREATE TABLE IF NOT EXISTS chat_historial (
                         id_chat INTEGER PRIMARY KEY AUTOINCREMENT,
                         id_usuario INTEGER NOT NULL,
                         rol TEXT NOT NULL,
                         mensaje TEXT NOT NULL,
                         fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY(id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE)''')
+
+    # 6. Tabla de alertas de precio
+    cursor.execute('''CREATE TABLE IF NOT EXISTS alertas_precio (
+                        id_alerta INTEGER PRIMARY KEY AUTOINCREMENT,
+                        id_usuario INTEGER NOT NULL,
+                        medicamento TEXT NOT NULL,
+                        umbral_precio INTEGER NOT NULL,
+                        activa INTEGER DEFAULT 1,
+                        fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
                         FOREIGN KEY(id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE)''')
 
     conn.commit()
@@ -599,41 +609,48 @@ def _extraer_generico(driver):
 
 
 
+
+def _agregar_resultados(items, farmacia, color, res):
+    """Procesa items extraídos (dict o lista) y los agrega a res."""
+    if not items:
+        return
+    if isinstance(items, dict):
+        items = [items]
+    for d in items:
+        if d and d.get('n') and d.get('pr'):
+            res.append({
+                "farmacia": farmacia, "nombre": d['n'], "precio": d['pr'], "link": d.get('l', ''),
+                "color": color,
+                "oferta": bool(d.get('orig')),
+                "precio_original": d.get('orig')
+            })
+
+
 def logic_ahumada(remedio, driver, res):
     try:
-        driver.get(f"https://www.farmaciasahumada.cl/search?q={remedio}&srule=price-low-to-high&sz=1")
+        driver.get(f"https://www.farmaciasahumada.cl/search?q={remedio}&srule=price-low-to-high&sz=4")
         WebDriverWait(driver, 8).until(EC.presence_of_element_located((By.CLASS_NAME, "price")))
-        d = driver.execute_script("""
-            let nomEl = document.querySelector('.pdp-link');
-            let priceWrap = document.querySelector('.price');
-            if(!nomEl || !priceWrap) return null;
-            let linkEl = nomEl.querySelector('a');
-            // En Salesforce Commerce: .sales = precio actual, .strike-through = precio anterior
-            let salesEl  = priceWrap.querySelector('.sales .value, .sales');
-            let strikeEl = priceWrap.querySelector('.strike-through .value, .strike-through, del');
-            let actual   = salesEl ? salesEl.innerText.trim() : priceWrap.innerText.split('\\n')[0].trim();
-            let original = strikeEl ? strikeEl.innerText.trim() : null;
-            return {
-                n: nomEl.innerText.trim(),
-                pr: actual,
-                l: linkEl ? linkEl.href : window.location.href,
-                orig: original
-            };
+        items = driver.execute_script("""
+            let tiles = document.querySelectorAll('.product-tile, .grid-tile, .product');
+            let results = [];
+            tiles.forEach((tile, i) => {
+                if (i >= 3) return;
+                let nom = tile.querySelector('.pdp-link');
+                let priceWrap = tile.querySelector('.price');
+                if (!nom || !priceWrap) return;
+                let link = nom.querySelector('a');
+                let salesEl = priceWrap.querySelector('.sales .value, .sales');
+                let strikeEl = priceWrap.querySelector('.strike-through .value, .strike-through, del');
+                let actual = salesEl ? salesEl.innerText.trim() : priceWrap.innerText.split('\\n')[0].trim();
+                let orig = strikeEl ? strikeEl.innerText.trim() : null;
+                if (actual) results.push({ n: nom.innerText.trim(), pr: actual, l: link ? link.href : window.location.href, orig: orig });
+            });
+            return results.length > 0 ? results : null;
         """)
-        if d and d['n'] and d['pr']:
-            res.append({
-                "farmacia": "Ahumada", "nombre": d['n'], "precio": d['pr'], "link": d['l'],
-                "color": "#003399",
-                "oferta": bool(d['orig']),
-                "precio_original": d['orig']
-            })
+        if items:
+            _agregar_resultados(items, "Ahumada", "#003399", res)
         else:
-            g = _extraer_generico(driver)
-            if g and g['n'] and g['pr']:
-                res.append({
-                    "farmacia": "Ahumada", "nombre": g['n'], "precio": g['pr'], "link": g['l'],
-                    "color": "#003399", "oferta": bool(g['orig']), "precio_original": g['orig']
-                })
+            _agregar_resultados(_extraer_generico(driver), "Ahumada", "#003399", res)
     except Exception as e:
         print(f"Error Ahumada: {e}")
 
@@ -647,37 +664,27 @@ def logic_drsimi(remedio, driver, res):
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "[class*='brandName'], [class*='productBrand']"))
         )
-        d = driver.execute_script("""
-            let nomEl = document.querySelector("[class*='brandName'], [class*='productBrand']");
-            let sellEl = document.querySelector("[class*='sellingPrice']") || document.querySelector("[class*='currencyContainer']");
-            let listEl = document.querySelector("[class*='listPrice']");
-            let linkEl = document.querySelector("a[class*='clearLink'], a[class*='product-summary']");
-            if(!nomEl || !sellEl) return null;
-            let actual = sellEl.innerText.trim();
-            let original = listEl ? listEl.innerText.trim() : null;
-            // Solo es oferta si el precio lista difiere del precio actual
-            let esOferta = original && original.replace(/\\D/g,'') !== actual.replace(/\\D/g,'') && original.replace(/\\D/g,'') !== '';
-            return {
-                n: nomEl.innerText.trim(),
-                pr: actual,
-                l: linkEl ? linkEl.href : window.location.href,
-                orig: esOferta ? original : null
-            };
+        items = driver.execute_script("""
+            let cards = document.querySelectorAll('[class*="productSummary"], [class*="product-summary"], article');
+            let results = [];
+            cards.forEach((card, i) => {
+                if (i >= 3) return;
+                let nom = card.querySelector('[class*="brandName"], [class*="productBrand"]');
+                let sell = card.querySelector('[class*="sellingPrice"], [class*="currencyContainer"]');
+                let list = card.querySelector('[class*="listPrice"]');
+                let link = card.querySelector('a[class*="clearLink"], a');
+                if (!nom || !sell) return;
+                let actual = sell.innerText.trim();
+                let orig = list ? list.innerText.trim() : null;
+                let esOferta = orig && orig.replace(/\\D/g,'') !== actual.replace(/\\D/g,'') && orig.replace(/\\D/g,'') !== '';
+                results.push({ n: nom.innerText.trim(), pr: actual, l: link ? link.href : window.location.href, orig: esOferta ? orig : null });
+            });
+            return results.length > 0 ? results : null;
         """)
-        if d and d['n'] and d['pr']:
-            res.append({
-                "farmacia": "Dr. Simi", "nombre": d['n'], "precio": d['pr'], "link": d['l'],
-                "color": "#ce000c",
-                "oferta": bool(d['orig']),
-                "precio_original": d['orig']
-            })
+        if items:
+            _agregar_resultados(items, "Dr. Simi", "#ce000c", res)
         else:
-            g = _extraer_generico(driver)
-            if g and g['n'] and g['pr']:
-                res.append({
-                    "farmacia": "Dr. Simi", "nombre": g['n'], "precio": g['pr'], "link": g['l'],
-                    "color": "#ce000c", "oferta": bool(g['orig']), "precio_original": g['orig']
-                })
+            _agregar_resultados(_extraer_generico(driver), "Dr. Simi", "#ce000c", res)
     except Exception as e:
         print(f"Error Dr. Simi: {e}")
 
@@ -685,49 +692,32 @@ def logic_drsimi(remedio, driver, res):
 def logic_salcobrand(remedio, driver, res):
     try:
         driver.get(f"https://salcobrand.cl/search_result?query={remedio}&sort=price_asc")
-        # Espera NO fatal: si se agota (carga lenta), igual seguimos e intentamos extraer
         try:
             WebDriverWait(driver, 12).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, ".product, .product-info, .product-card"))
             )
         except Exception:
             pass
-        time.sleep(1.5)  # margen para que terminen de renderizar los precios
-
-        d = driver.execute_script("""
-            let p = document.querySelector('.product-info') || document.querySelector('.product-card') || document.querySelector('.product');
-            if(!p) return null;
-            let c = p.closest('.product') || p;
-            // precio actual (no old-price) + precio anterior tachado (old-price) para detectar oferta
-            let priceElem = c.querySelector('.price:not(.old-price)') || c.querySelector('.price') || c.querySelector('[class*="price"]');
-            let oldElem   = c.querySelector('.old-price');
-            let linkElem  = c.querySelector('a');
-            if(!priceElem || !linkElem) return null;
-            let original = oldElem ? oldElem.innerText.trim() : null;
-            return {
-                n: p.innerText.split('\\n')[0].trim(),
-                pr: priceElem.innerText.trim(),
-                l: linkElem.href,
-                orig: (original && original.replace(/\\D/g,'') !== '') ? original : null
-            };
+        time.sleep(1.5)
+        items = driver.execute_script("""
+            let products = document.querySelectorAll('.product');
+            let results = [];
+            products.forEach((prod, i) => {
+                if (i >= 3) return;
+                let info = prod.querySelector('.product-info') || prod.querySelector('.product-card') || prod;
+                let priceEl = prod.querySelector('.price:not(.old-price)') || prod.querySelector('.price') || prod.querySelector('[class*="price"]');
+                let oldEl = prod.querySelector('.old-price');
+                let linkEl = prod.querySelector('a');
+                if (!priceEl || !linkEl) return;
+                let orig = oldEl ? oldEl.innerText.trim() : null;
+                results.push({ n: info.innerText.split('\\n')[0].trim(), pr: priceEl.innerText.trim(), l: linkEl.href, orig: (orig && orig.replace(/\\D/g,'') !== '') ? orig : null });
+            });
+            return results.length > 0 ? results : null;
         """)
-        if d and d['n'] and d['pr']:
-            res.append({
-                "farmacia": "Salcobrand", "nombre": d['n'], "precio": d['pr'], "link": d['l'],
-                "color": "#ffd400",
-                "oferta": bool(d['orig']),
-                "precio_original": d['orig']
-            })
+        if items:
+            _agregar_resultados(items, "Salcobrand", "#ffd400", res)
         else:
-            # Respaldo: extractor genérico de precios CLP
-            g = _extraer_generico(driver)
-            if g and g['n'] and g['pr']:
-                res.append({
-                    "farmacia": "Salcobrand", "nombre": g['n'], "precio": g['pr'], "link": g['l'],
-                    "color": "#ffd400",
-                    "oferta": bool(g['orig']),
-                    "precio_original": g['orig']
-                })
+            _agregar_resultados(_extraer_generico(driver), "Salcobrand", "#ffd400", res)
     except Exception as e:
         print(f"Error Salcobrand: {e}")
 
@@ -735,63 +725,54 @@ def logic_salcobrand(remedio, driver, res):
 def logic_cruzverde(remedio, driver, res):
     try:
         driver.get(f"https://www.cruzverde.cl/search?query={remedio}")
-        # Esperamos a que aparezca un enlace de producto o un precio (lo que llegue primero)
         try:
             WebDriverWait(driver, 15).until(
-                EC.presence_of_element_located((
-                    By.CSS_SELECTOR,
-                    "a[href*='/product/'], [class*='product-tile'], [class*='price']"
-                ))
+                EC.presence_of_element_located((By.CSS_SELECTOR, "a[href*='/product/'], [class*='product-tile'], [class*='price']"))
             )
         except Exception:
             pass
-        # Pausa breve: Cruz Verde carga los PRECIOS por XHR un instante después del producto
         time.sleep(2.5)
-
-        # Método principal: extractor genérico (robusto, busca cualquier precio CLP)
-        g = _extraer_generico(driver)
-        if g and g['n'] and g['pr']:
-            res.append({
-                "farmacia": "Cruz Verde", "nombre": g['n'], "precio": g['pr'], "link": g['l'],
-                "color": "#009639",
-                "oferta": bool(g['orig']),
-                "precio_original": g['orig']
-            })
-            return
-
-        # Respaldo: selectores específicos de tarjeta de producto
-        d = driver.execute_script("""
-            let card = document.querySelector("[class*='product-tile']") ||
-                       document.querySelector("[class*='product-card']") ||
-                       document.querySelector("[class*='ProductCard']") ||
-                       document.querySelector("a[href*='/product/']");
-            if(!card) return null;
-            let cont = card.closest("[class*='product-tile'], [class*='product-card'], [class*='ProductCard'], li, article") || card;
-            let nomEl = cont.querySelector("[class*='product-name'], [class*='ProductName'], [class*='name'] a, a[href*='/product/'], h2, h3");
-            let linkEl = cont.querySelector("a[href*='/product/']") || cont.querySelector("a");
-            let priceNodes = Array.from(cont.querySelectorAll("[class*='price'], [class*='Price']"))
-                .map(e => e.innerText.trim()).filter(t => /\\$\\s?\\d/.test(t));
-            let parse = t => parseInt(t.replace(/\\D/g,''), 10) || 0;
-            let actual = null, original = null;
-            if (priceNodes.length >= 2) {
-                let nums = priceNodes.map(parse).filter(n => n > 0).sort((a,b)=>a-b);
-                actual = '$' + nums[0].toLocaleString('es-CL');
-                if (nums[nums.length-1] !== nums[0]) original = '$' + nums[nums.length-1].toLocaleString('es-CL');
-            } else if (priceNodes.length === 1) {
-                actual = priceNodes[0];
-            }
-            if(!nomEl || !actual) return null;
-            return { n: nomEl.innerText.trim(), pr: actual, l: linkEl ? linkEl.href : window.location.href, orig: original };
-        """)
-        if d and d['n'] and d['pr']:
-            res.append({
-                "farmacia": "Cruz Verde", "nombre": d['n'], "precio": d['pr'], "link": d['l'],
-                "color": "#009639",
-                "oferta": bool(d['orig']),
-                "precio_original": d['orig']
-            })
+        _agregar_resultados(_extraer_generico(driver), "Cruz Verde", "#009639", res)
     except Exception as e:
         print(f"Error Cruz Verde: {e}")
+
+
+@app.route('/bioequivalente', methods=['POST'])
+def bioequivalente():
+    """Usa el LLM para identificar el principio activo de un medicamento y sugerir búsquedas genéricas."""
+    data = request.json
+    nombre = data.get('nombre', '').strip()
+    if not nombre:
+        return jsonify({"error": "Falta el nombre del medicamento."}), 400
+
+    try:
+        completion = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": (
+                    "Eres un farmacéutico experto chileno. El usuario te da el nombre de un medicamento. "
+                    "Responde SOLO con un JSON válido (sin markdown, sin texto extra) con estos campos:\n"
+                    '{"principio_activo": "nombre del principio activo/molécula", '
+                    '"dosis_comun": "dosis más común (ej: 500mg)", '
+                    '"buscar": "término genérico para buscar en farmacias chilenas (ej: paracetamol 500mg)", '
+                    '"es_generico": true/false, '
+                    '"alternativas": ["nombre genérico 1", "nombre genérico 2"]}'
+                )},
+                {"role": "user", "content": f"Medicamento: {nombre}"}
+            ],
+            temperature=0.1
+        )
+        respuesta = completion.choices[0].message.content.strip()
+        if respuesta.startswith("```"):
+            respuesta = respuesta.split("```")[1]
+            if respuesta.startswith("json"):
+                respuesta = respuesta[4:]
+            respuesta = respuesta.strip()
+        resultado = json.loads(respuesta)
+        return jsonify(resultado)
+    except Exception as e:
+        print(f"Error bioequivalente: {e}")
+        return jsonify({"error": "No se pudo analizar el medicamento."}), 500
 
 
 @app.route('/scraping_manual', methods=['POST'])
@@ -888,6 +869,105 @@ def medicamentos_populares():
         })
     conn.close()
     return jsonify(resultados)
+
+
+# =========================================================
+# ALERTAS DE PRECIO
+# =========================================================
+
+@app.route('/alertas', methods=['POST'])
+def crear_alerta():
+    usuario = resolver_token()
+    if not usuario:
+        return jsonify({"error": "Sesión requerida."}), 401
+    data = request.json
+    medicamento = data.get('medicamento', '').strip().lower()
+    umbral = data.get('umbral_precio', 0)
+    if not medicamento or not umbral:
+        return jsonify({"error": "Medicamento y precio umbral son obligatorios."}), 400
+    try:
+        umbral = int(umbral)
+    except (ValueError, TypeError):
+        return jsonify({"error": "El precio umbral debe ser un número entero."}), 400
+
+    conn = sqlite3.connect('farmacia.db')
+    c = conn.cursor()
+    # Verificar que no tenga ya una alerta para ese medicamento
+    c.execute("SELECT id_alerta FROM alertas_precio WHERE id_usuario = ? AND medicamento = ? AND activa = 1",
+              (usuario['id'], medicamento))
+    if c.fetchone():
+        # Actualizar el umbral existente
+        c.execute("UPDATE alertas_precio SET umbral_precio = ? WHERE id_usuario = ? AND medicamento = ? AND activa = 1",
+                  (umbral, usuario['id'], medicamento))
+    else:
+        c.execute("INSERT INTO alertas_precio (id_usuario, medicamento, umbral_precio) VALUES (?, ?, ?)",
+                  (usuario['id'], medicamento, umbral))
+    conn.commit()
+    conn.close()
+    return jsonify({"mensaje": f"Alerta creada: te avisaremos cuando {medicamento} baje de ${umbral:,} CLP.".replace(",", ".")})
+
+
+@app.route('/alertas', methods=['GET'])
+def listar_alertas():
+    usuario = resolver_token()
+    if not usuario:
+        return jsonify({"error": "Sesión requerida."}), 401
+    conn = sqlite3.connect('farmacia.db')
+    c = conn.cursor()
+    c.execute("SELECT id_alerta, medicamento, umbral_precio, fecha_creacion FROM alertas_precio WHERE id_usuario = ? AND activa = 1 ORDER BY fecha_creacion DESC",
+              (usuario['id'],))
+    alertas = []
+    for row in c.fetchall():
+        alertas.append({"id": row[0], "medicamento": row[1], "umbral": row[2], "fecha": row[3]})
+    conn.close()
+    return jsonify(alertas)
+
+
+@app.route('/alertas/<int:aid>', methods=['DELETE'])
+def eliminar_alerta(aid):
+    usuario = resolver_token()
+    if not usuario:
+        return jsonify({"error": "Sesión requerida."}), 401
+    conn = sqlite3.connect('farmacia.db')
+    c = conn.cursor()
+    c.execute("DELETE FROM alertas_precio WHERE id_alerta = ? AND id_usuario = ?", (aid, usuario['id']))
+    conn.commit()
+    conn.close()
+    return jsonify({"mensaje": "Alerta eliminada."})
+
+
+@app.route('/alertas/verificar', methods=['GET'])
+def verificar_alertas():
+    """Verifica si alguna alerta del usuario se cumplió (precio actual <= umbral)."""
+    usuario = resolver_token()
+    if not usuario:
+        return jsonify({"error": "Sesión requerida."}), 401
+    conn = sqlite3.connect('farmacia.db')
+    c = conn.cursor()
+    c.execute("SELECT id_alerta, medicamento, umbral_precio FROM alertas_precio WHERE id_usuario = ? AND activa = 1",
+              (usuario['id'],))
+    alertas = c.fetchall()
+    disparadas = []
+    for alerta_id, med, umbral in alertas:
+        # Buscar el precio más bajo registrado para ese medicamento
+        c.execute('''SELECT MIN(h.precio), f.nombre_farmacia
+                     FROM historial h
+                     JOIN medicamentos m ON h.id_medicamento = m.id_medicamento
+                     JOIN farmacias f ON h.id_farmacia = f.id_farmacias
+                     WHERE m.nombre_buscado = ?
+                     GROUP BY h.id_farmacia
+                     ORDER BY MIN(h.precio) ASC LIMIT 1''', (med,))
+        row = c.fetchone()
+        if row and row[0] <= umbral:
+            disparadas.append({
+                "id": alerta_id,
+                "medicamento": med,
+                "umbral": umbral,
+                "precio_actual": row[0],
+                "farmacia": row[1]
+            })
+    conn.close()
+    return jsonify(disparadas)
 
 
 # =========================================================
