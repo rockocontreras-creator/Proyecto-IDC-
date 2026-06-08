@@ -439,6 +439,51 @@ def identificar_pastilla():
         return jsonify({"error": f"Error al procesar la imagen: {str(e)[:200]}"}), 500
 
 
+@app.route('/extraer_receta', methods=['POST'])
+def extraer_receta():
+    """Extrae los nombres de medicamentos de una foto de receta médica."""
+    data = request.json
+    imagen = data.get('imagen_base64')
+    if not imagen:
+        return jsonify({"error": "Debes enviar una imagen de la receta."}), 400
+
+    prompt = (
+        "Eres un farmacéutico experto chileno. Analiza esta imagen de una receta médica. "
+        "Extrae TODOS los medicamentos mencionados en la receta. "
+        "Responde ÚNICAMENTE con un JSON válido (sin markdown, sin texto extra) con este formato:\n"
+        '{"medicamentos": [\n'
+        '  {"nombre": "nombre del medicamento tal como aparece", "buscar": "término óptimo para buscar en farmacias chilenas (nombre genérico + dosis si está visible)"},\n'
+        '  ...\n'
+        ']}\n\n'
+        "Si no puedes leer la receta o no encuentras medicamentos, devuelve {\"medicamentos\": []}. "
+        "NUNCA respondas fuera del formato JSON."
+    )
+
+    try:
+        contenido = [
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{imagen}"}}
+        ]
+        completion = client.chat.completions.create(
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
+            messages=[{"role": "user", "content": contenido}],
+            temperature=0.1
+        )
+        respuesta = completion.choices[0].message.content.strip()
+        if respuesta.startswith("```"):
+            respuesta = respuesta.split("```")[1]
+            if respuesta.startswith("json"):
+                respuesta = respuesta[4:]
+            respuesta = respuesta.strip()
+        resultado = json.loads(respuesta)
+        return jsonify(resultado)
+    except json.JSONDecodeError:
+        return jsonify({"medicamentos": [], "error": "No se pudo interpretar la receta."})
+    except Exception as e:
+        print(f"Error extrayendo receta: {e}")
+        return jsonify({"error": str(e)[:200]}), 500
+
+
 # =========================================================
 # SCRAPING
 # =========================================================
