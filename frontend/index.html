@@ -117,6 +117,9 @@
                 <button class="nav-btn" onclick="showSection('identificador', this)">
                     <i data-lucide="scan"></i> Identificador
                 </button>
+                <button class="nav-btn" onclick="showSection('optimizador', this)">
+                    <i data-lucide="calculator"></i> Optimizador
+                </button>
                 <button class="nav-btn" onclick="abrirHistorial(this)">
                     <i data-lucide="history"></i> Historial
                 </button>
@@ -364,6 +367,47 @@
                     <!-- Advertencia legal -->
                     <div class="legal-warning" style="margin-top:16px;">
                         ⚠️ La identificación por IA es orientativa. Consulte siempre a un farmacéutico o médico para confirmar el medicamento.
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECCIÓN: OPTIMIZADOR DE RECETA -->
+            <div id="optimizador-section" class="content-section">
+                <div class="card-premium">
+                    <div class="section-header">
+                        <h2>Optimizador de Receta Completa</h2>
+                        <p>Sube una foto de tu receta médica y el sistema encontrará la combinación más económica entre todas las farmacias.</p>
+                    </div>
+
+                    <!-- Paso 1: Subir receta -->
+                    <div id="opt-step-upload">
+                        <div class="pill-upload-zone" id="opt-drop-zone" onclick="document.getElementById('opt-file-input').click()">
+                            <input type="file" id="opt-file-input" accept="image/*" capture="environment" style="display:none;" onchange="optFileSelected(event)">
+                            <div class="pill-upload-placeholder" id="opt-placeholder">
+                                <i data-lucide="file-text" class="pill-upload-icon"></i>
+                                <p>Sube la foto de tu receta médica</p>
+                                <span>La IA extraerá todos los medicamentos automáticamente</span>
+                            </div>
+                            <img id="opt-preview-img" class="pill-preview-img" style="display:none;">
+                        </div>
+                        <div class="pill-actions">
+                            <button class="btn-premium" id="opt-extract-btn" onclick="extraerReceta()" disabled>
+                                <i data-lucide="scan"></i> Extraer medicamentos
+                            </button>
+                            <button class="pill-clear-btn" id="opt-clear-btn" onclick="limpiarOptimizador()" style="display:none;">
+                                <i data-lucide="x"></i> Limpiar
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Paso 2: Lista de medicamentos extraídos (editable) -->
+                    <div id="opt-step-meds" style="display:none;"></div>
+
+                    <!-- Paso 3: Resultados del scraping + optimización -->
+                    <div id="opt-step-results" style="display:none;"></div>
+
+                    <div class="legal-warning" style="margin-top:16px;">
+                        ⚠️ Verifica siempre que los medicamentos extraídos coincidan con tu receta antes de comprar.
                     </div>
                 </div>
             </div>
