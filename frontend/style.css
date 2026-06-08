@@ -2438,3 +2438,227 @@ tr:last-child td { border-bottom: none; }
     .hist-stat-value { font-size: 1.2rem; }
     .hist-selector { min-width: 160px; }
 }
+
+/* ==========================================================================
+   OPTIMIZADOR DE RECETA COMPLETA
+   ========================================================================== */
+
+.opt-meds-card {
+    margin-top: 20px;
+    background: var(--bg-main);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 24px;
+    animation: fadeIn 0.3s;
+}
+
+.opt-meds-card h3 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.opt-meds-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.opt-med-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.opt-med-num {
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.78rem;
+}
+
+.opt-med-input {
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-sm) !important;
+    padding: 8px 12px !important;
+    background: var(--card-bg) !important;
+}
+
+/* Progreso */
+.opt-progress {
+    margin-top: 20px;
+    padding: 24px;
+    background: var(--bg-main);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+}
+
+.opt-progress h3 {
+    font-size: 1rem;
+    margin-bottom: 16px;
+}
+
+.opt-progress-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.opt-progress-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.9rem;
+    padding: 6px 0;
+}
+
+/* Resultado */
+.opt-result-card {
+    margin-top: 20px;
+    animation: fadeIn 0.4s;
+}
+
+.opt-result-card h3 {
+    font-size: 1.2rem;
+    font-weight: 700;
+    margin-bottom: 16px;
+}
+
+.opt-strategies {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-bottom: 20px;
+}
+
+.opt-strategy {
+    background: var(--bg-main);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 20px 24px;
+}
+
+.opt-strategy-best {
+    border-color: #10b981;
+    border-width: 2px;
+    background: rgba(16, 185, 129, 0.04);
+}
+
+.dark-mode .opt-strategy-best {
+    background: rgba(16, 185, 129, 0.08);
+}
+
+.opt-strat-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.opt-strat-badge {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.opt-strat-badge.best {
+    background: #dcfce7;
+    color: #15803d;
+    border: 1px solid #bbf7d0;
+}
+
+.opt-strat-badge.single {
+    background: #e0f2fe;
+    color: #0369a1;
+    border: 1px solid #bae6fd;
+}
+
+.dark-mode .opt-strat-badge.best { background: #052e16; color: #4ade80; border-color: #14532d; }
+.dark-mode .opt-strat-badge.single { background: #082f49; color: #38bdf8; border-color: #0c4a6e; }
+
+.opt-strat-total {
+    font-size: 1.8rem;
+    font-weight: 800;
+    color: var(--text-main);
+    line-height: 1;
+}
+
+.opt-strat-total small {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.opt-strategy-best .opt-strat-total { color: #10b981; }
+
+.opt-strat-desc {
+    font-size: 0.88rem;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+}
+
+.opt-strat-items {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.opt-strat-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.88rem;
+    padding: 6px 10px;
+    background: var(--card-bg);
+    border-radius: var(--radius-sm);
+}
+
+.opt-item-med { flex: 1; font-weight: 600; }
+.opt-item-farm { font-weight: 600; font-size: 0.82rem; }
+.opt-item-price { font-weight: 800; color: #10b981; }
+
+/* Ahorro */
+.opt-savings {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 20px;
+    background: #dcfce7;
+    border: 1px solid #bbf7d0;
+    border-radius: var(--radius-md);
+    color: #15803d;
+    font-size: 0.95rem;
+    margin-top: 14px;
+    animation: fadeIn 0.5s;
+}
+
+.dark-mode .opt-savings {
+    background: #052e16;
+    color: #4ade80;
+    border-color: #14532d;
+}
+
+/* Tabla comparativa */
+.opt-full-table {
+    margin-top: 24px;
+}
+
+.opt-full-table h4 {
+    font-size: 1rem;
+    font-weight: 700;
+    margin-bottom: 12px;
+}
+
+@media (max-width: 768px) {
+    .opt-strat-total { font-size: 1.3rem; }
+}
