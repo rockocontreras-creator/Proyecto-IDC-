@@ -231,41 +231,102 @@ function irASeccion(id) {
 // =========================================================
 // PÁGINA DE INICIO — CARRUSEL DE MEDICAMENTOS POPULARES
 // =========================================================
+let carouselMeds = [];
+let carouselPage = 0;
+let carouselTimer = null;
+
 async function cargarMedicamentosPopulares() {
     const carousel = document.getElementById('home-carousel');
     const emptyEl = document.getElementById('carousel-empty');
+
+    // Skeleton mientras carga
+    if (carousel && carouselMeds.length === 0) {
+        carousel.innerHTML = `
+            <div class="carousel-card carousel-card-lg sk-card"><div class="sk sk-bar" style="width:120px;height:30px;"></div><div class="sk sk-bar" style="width:160px;height:14px;"></div><div class="sk sk-bar" style="width:100px;height:12px;"></div></div>
+            <div class="carousel-card carousel-card-lg sk-card"><div class="sk sk-bar" style="width:110px;height:30px;"></div><div class="sk sk-bar" style="width:140px;height:14px;"></div><div class="sk sk-bar" style="width:90px;height:12px;"></div></div>
+            <div class="carousel-card carousel-card-lg sk-card"><div class="sk sk-bar" style="width:130px;height:30px;"></div><div class="sk sk-bar" style="width:170px;height:14px;"></div><div class="sk sk-bar" style="width:110px;height:12px;"></div></div>`;
+    }
+
     try {
         const r = await fetch(`${API}/medicamentos_populares`);
         const meds = await r.json();
         if (!meds || meds.length === 0) {
-            if (emptyEl) emptyEl.style.display = 'flex';
+            // Reemplazar skeleton con el estado vacío
+            carousel.innerHTML = `<div class="home-carousel-empty" style="display:flex;grid-column:1/-1;">
+                <i data-lucide="search" style="width:32px;height:32px;opacity:0.3;"></i>
+                <p>Aún no hay medicamentos registrados.</p>
+            </div>`;
+            lucide.createIcons();
             return;
         }
-        if (emptyEl) emptyEl.style.display = 'none';
 
-        let html = '';
-        meds.forEach(m => {
-            const precioFormateado = m.precio_min ? `$${m.precio_min.toLocaleString('es-CL')}` : '—';
-            html += `<div class="carousel-card" onclick="irASeccion('search'); setTimeout(()=>{ document.getElementById('manual-search').value='${m.nombre}'; }, 100);">
-                <div class="carousel-card-price">${precioFormateado} <span>CLP</span></div>
-                <div class="carousel-card-name">${m.nombre.toUpperCase()}</div>
-                <div class="carousel-card-farm" style="color:${m.color || 'var(--text-muted)'};">
-                    <span class="carousel-dot" style="background:${m.color};"></span>
-                    ${m.farmacia || 'Sin datos'}
-                </div>
-                <div class="carousel-card-badge">${m.busquedas} búsqueda${m.busquedas !== 1 ? 's' : ''}</div>
-            </div>`;
-        });
-        carousel.innerHTML = html;
+        carouselMeds = meds;
+        carouselPage = 0;
+        renderCarouselPage();
+
+        // Auto-rotación cada 3 segundos
+        if (carouselTimer) clearInterval(carouselTimer);
+        if (meds.length > 3) {
+            carouselTimer = setInterval(() => {
+                carouselPage = (carouselPage + 1) % Math.ceil(carouselMeds.length / 3);
+                renderCarouselPage();
+            }, 3000);
+        }
     } catch (e) {
         console.error("Error cargando populares:", e);
     }
 }
 
-function scrollCarousel(dir) {
-    const c = document.getElementById('home-carousel');
-    c.scrollBy({ left: dir * 280, behavior: 'smooth' });
+function renderCarouselPage() {
+    const carousel = document.getElementById('home-carousel');
+    if (!carousel || carouselMeds.length === 0) return;
+
+    const start = carouselPage * 3;
+    const visibles = carouselMeds.slice(start, start + 3);
+    // Si la última página tiene menos de 3, completar desde el inicio
+    while (visibles.length < 3 && carouselMeds.length >= 3) {
+        visibles.push(carouselMeds[visibles.length % carouselMeds.length]);
+    }
+
+    const totalPages = Math.ceil(carouselMeds.length / 3);
+
+    let html = '';
+    visibles.forEach(m => {
+        const precioFormateado = m.precio_min ? `$${m.precio_min.toLocaleString('es-CL')}` : '—';
+        html += `<div class="carousel-card carousel-card-lg" onclick="irASeccion('search'); setTimeout(()=>{ document.getElementById('manual-search').value='${m.nombre}'; }, 100);">
+            <div class="carousel-card-badge-top">${m.busquedas} búsqueda${m.busquedas !== 1 ? 's' : ''}</div>
+            <div class="carousel-card-price">${precioFormateado} <span>CLP</span></div>
+            <div class="carousel-card-name">${m.nombre.toUpperCase()}</div>
+            <div class="carousel-card-farm" style="color:${m.color || 'var(--text-muted)'};">
+                <span class="carousel-dot" style="background:${m.color};"></span>
+                ${m.farmacia || 'Sin datos'}
+            </div>
+        </div>`;
+    });
+
+    // Indicadores de página (dots)
+    if (totalPages > 1) {
+        html += `<div class="carousel-dots-row">`;
+        for (let i = 0; i < totalPages; i++) {
+            html += `<button class="carousel-page-dot${i === carouselPage ? ' active' : ''}" onclick="irAPaginaCarrusel(${i})"></button>`;
+        }
+        html += `</div>`;
+    }
+
+    carousel.innerHTML = html;
 }
+
+function irAPaginaCarrusel(page) {
+    carouselPage = page;
+    renderCarouselPage();
+    // Reiniciar el timer al interactuar
+    if (carouselTimer) clearInterval(carouselTimer);
+    carouselTimer = setInterval(() => {
+        carouselPage = (carouselPage + 1) % Math.ceil(carouselMeds.length / 3);
+        renderCarouselPage();
+    }, 3000);
+}
+
 
 // Cargar populares al inicio
 document.addEventListener('DOMContentLoaded', () => { setTimeout(cargarMedicamentosPopulares, 500); });
@@ -531,6 +592,7 @@ async function enviarMensaje() {
     try {
         const payload = {
             pregunta: prompt,
+            idioma: localStorage.getItem('fc_lang') || 'es',
             contexto_precios: ultimosResultados,
             archivo_base64: fileToSend
         };
@@ -587,12 +649,7 @@ async function startScraping() {
     searchBtn.disabled = true;
     tools.style.display = 'none';
     document.getElementById('bioequivalente-result').style.display = 'none';
-    res.innerHTML = `<div style="width:100%;border:1px solid var(--border);border-radius:12px;overflow:hidden;">
-        <div style="background:var(--border);height:45px;padding:12px;font-weight:600;font-size:0.85rem;color:var(--text-muted);">⏳ Buscando en 4 farmacias en paralelo...</div>
-        <div style="padding:20px;display:flex;flex-direction:column;gap:12px;background:var(--card-bg);">
-            <div style="height:20px;background:var(--border);border-radius:4px;opacity:0.6;animation:pulse 1.5s infinite;"></div>
-            <div style="height:20px;background:var(--border);border-radius:4px;opacity:0.4;animation:pulse 1.5s infinite 0.2s;"></div>
-        </div></div>`;
+    res.innerHTML = renderSkeletonTabla();
 
     try {
         const r = await fetch(`${API}/scraping_manual`, {
@@ -639,13 +696,22 @@ function renderTablaResultados(items) {
         return;
     }
 
+    // Deduplicar: eliminar resultados con mismo farmacia + mismo nombre
+    const seen = new Set();
+    const dedupItems = items.filter(p => {
+        const key = `${p.farmacia}|${p.nombre}|${p.precio}`.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+
     let menorPrecio = Infinity;
-    items.forEach(p => {
+    dedupItems.forEach(p => {
         const val = parseInt(String(p.precio).replace(/\D/g, ''), 10);
         if (!isNaN(val) && val < menorPrecio) menorPrecio = val;
     });
 
-    const ordenados = [...items].sort((a, b) => {
+    const ordenados = [...dedupItems].sort((a, b) => {
         const va = parseInt(String(a.precio).replace(/\D/g, ''), 10) || Infinity;
         const vb = parseInt(String(b.precio).replace(/\D/g, ''), 10) || Infinity;
         return va - vb;
@@ -653,11 +719,11 @@ function renderTablaResultados(items) {
 
     // Contador por farmacia
     const conteo = {};
-    items.forEach(p => { conteo[p.farmacia] = (conteo[p.farmacia] || 0) + 1; });
+    dedupItems.forEach(p => { conteo[p.farmacia] = (conteo[p.farmacia] || 0) + 1; });
     const farmacias = Object.keys(conteo);
     const resumenHtml = farmacias.map(f => `<span class="results-summary-chip">${f}: ${conteo[f]}</span>`).join('');
 
-    let html = `<div class="results-summary">${resumenHtml} — <strong>${items.length} resultados</strong></div>
+    let html = `<div class="results-summary">${resumenHtml} — <strong>${dedupItems.length} resultados</strong></div>
         <div class="results-table-wrapper"><table class="results-table"><thead><tr>
             <th>Farmacia</th><th>Producto encontrado</th><th>Precio</th><th>Estado</th><th style="text-align:right;">Acción</th>
         </tr></thead><tbody>`;
@@ -1594,39 +1660,40 @@ async function extraerReceta() {
 }
 
 async function optimizarPrecios() {
-    // Recopilar los nombres editados de los inputs
     const inputs = document.querySelectorAll('.opt-med-input');
     const nombres = Array.from(inputs).map(inp => inp.value.trim()).filter(n => n);
 
-    if (nombres.length === 0) {
-        alert('No hay medicamentos para buscar.');
-        return;
-    }
-
+    if (nombres.length === 0) { alert('No hay medicamentos para buscar.'); return; }
     if (!getToken()) { pedirLogin(); return; }
 
     const resultsDiv = document.getElementById('opt-step-results');
     resultsDiv.style.display = 'block';
-    resultsDiv.innerHTML = `<div class="opt-progress">
-        <h3>Buscando precios en 4 farmacias...</h3>
-        <div class="opt-progress-list" id="opt-progress-list"></div>
-    </div>`;
 
-    // Crear indicadores de progreso por medicamento
-    const progressList = document.getElementById('opt-progress-list');
-    nombres.forEach(n => {
-        progressList.innerHTML += `<div class="opt-progress-item" id="opt-prog-${n.replace(/\s/g,'-')}">
-            <div class="auth-spinner" style="width:14px;height:14px;border-width:2px;"></div>
-            <span>${n}</span>
-        </div>`;
+    // Crear indicadores de progreso
+    let progressHtml = '<div class="opt-progress"><h3>Buscando precios en farmacias...</h3>';
+    progressHtml += '<p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:12px;">Procesando de a uno para no saturar el sistema (' + nombres.length + ' medicamentos).</p>';
+    progressHtml += '<div class="opt-progress-list">';
+    nombres.forEach((n, i) => {
+        progressHtml += '<div class="opt-progress-item" id="opt-prog-' + i + '">' +
+            '<span style="color:var(--text-muted);">\u23f3</span> ' +
+            '<span>' + n + '</span> ' +
+            '<span style="color:var(--text-muted);font-size:0.78rem;">pendiente</span></div>';
     });
+    progressHtml += '</div></div>';
+    resultsDiv.innerHTML = progressHtml;
 
-    // Scraping en paralelo: todos los medicamentos al mismo tiempo
     const todosResultadosReceta = {};
 
-    const promesas = nombres.map(async (nombre) => {
+    // Procesar UNO POR UNO (secuencial) para no abrir 36 Chrome a la vez
+    for (let i = 0; i < nombres.length; i++) {
+        const nombre = nombres[i];
+        const progEl = document.getElementById('opt-prog-' + i);
+
+        if (progEl) progEl.innerHTML = '<div class="auth-spinner" style="width:14px;height:14px;border-width:2px;"></div>' +
+            ' <span>' + nombre + '</span> <span style="color:var(--text-muted);font-size:0.78rem;">buscando en farmacias...</span>';
+
         try {
-            const r = await fetch(`${API}/scraping_manual`, {
+            const r = await fetch(API + '/scraping_manual', {
                 method: 'POST',
                 headers: authHeaders(),
                 body: JSON.stringify({ remedio: nombre })
@@ -1634,22 +1701,18 @@ async function optimizarPrecios() {
             const data = await r.json();
             todosResultadosReceta[nombre] = data.precios || [];
 
-            // Actualizar progreso
-            const progEl = document.getElementById(`opt-prog-${nombre.replace(/\s/g,'-')}`);
-            if (progEl) {
-                const count = (data.precios || []).length;
-                progEl.innerHTML = `<span style="color:#10b981;">✓</span> <span>${nombre}</span> <span style="color:var(--text-muted);font-size:0.8rem;">(${count} resultados)</span>`;
-            }
-        } catch {
+            const count = (data.precios || []).length;
+            if (progEl) progEl.innerHTML = '<span style="color:#10b981;">\u2713</span>' +
+                ' <span>' + nombre + '</span>' +
+                ' <span style="color:var(--text-muted);font-size:0.78rem;">' + count + ' resultado' + (count !== 1 ? 's' : '') + '</span>';
+        } catch(e) {
             todosResultadosReceta[nombre] = [];
-            const progEl = document.getElementById(`opt-prog-${nombre.replace(/\s/g,'-')}`);
-            if (progEl) progEl.innerHTML = `<span style="color:#ef4444;">✗</span> <span>${nombre}</span> <span style="color:var(--text-muted);font-size:0.8rem;">(error)</span>`;
+            if (progEl) progEl.innerHTML = '<span style="color:#ef4444;">\u2717</span>' +
+                ' <span>' + nombre + '</span>' +
+                ' <span style="color:var(--text-muted);font-size:0.78rem;">error</span>';
         }
-    });
+    }
 
-    await Promise.all(promesas);
-
-    // Calcular optimización
     mostrarOptimizacion(todosResultadosReceta);
 }
 
@@ -1778,4 +1841,217 @@ function mostrarOptimizacion(resultadosPorMed) {
 
     resultsDiv.innerHTML = html;
     lucide.createIcons();
+}
+
+// =========================================================
+// CONFIGURACIÓN
+// =========================================================
+
+function abrirConfiguracion() {
+    document.getElementById('settings-modal').style.display = 'flex';
+    // Actualizar estado visual de las opciones
+    updateSettingsUI();
+    lucide.createIcons();
+}
+
+function cerrarConfiguracion() {
+    document.getElementById('settings-modal').style.display = 'none';
+}
+
+function updateSettingsUI() {
+    const isDark = document.body.classList.contains('dark-mode');
+    document.getElementById('theme-opt-light').classList.toggle('active', !isDark);
+    document.getElementById('theme-opt-dark').classList.toggle('active', isDark);
+
+    const lang = localStorage.getItem('fc_lang') || 'es';
+    document.getElementById('lang-opt-es').classList.toggle('active', lang === 'es');
+    document.getElementById('lang-opt-en').classList.toggle('active', lang === 'en');
+
+    const font = localStorage.getItem('fc_font') || 'Inter';
+    document.querySelectorAll('.settings-font-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-font') === font);
+    });
+
+    const notif = localStorage.getItem('fc_notif') !== 'off';
+    document.getElementById('settings-notif-toggle').checked = notif;
+    document.getElementById('settings-notif-text').textContent = notif ? 'Activadas' : 'Desactivadas';
+}
+
+function setTheme(theme) {
+    if (theme === 'dark') {
+        document.body.classList.add('dark-mode');
+    } else {
+        document.body.classList.remove('dark-mode');
+    }
+    localStorage.setItem('theme', theme);
+    document.getElementById('theme-icon').setAttribute('data-lucide', theme === 'dark' ? 'sun' : 'moon');
+    lucide.createIcons();
+    updateSettingsUI();
+    if (miGrafico) cargarHistorialFiltrado();
+}
+
+function setFont(fontName) {
+    document.documentElement.style.setProperty('--font-family', `'${fontName}', sans-serif`);
+    document.body.style.fontFamily = `'${fontName}', sans-serif`;
+    localStorage.setItem('fc_font', fontName);
+    updateSettingsUI();
+}
+
+function setIdioma(lang) {
+    localStorage.setItem('fc_lang', lang);
+    updateSettingsUI();
+    aplicarIdioma(lang);
+}
+
+function toggleNotificaciones(enabled) {
+    localStorage.setItem('fc_notif', enabled ? 'on' : 'off');
+    document.getElementById('settings-notif-text').textContent = enabled ? 'Activadas' : 'Desactivadas';
+    if (enabled) {
+        verificarAlertas();
+    } else {
+        document.getElementById('notif-count').style.display = 'none';
+    }
+}
+
+// Traducciones básicas
+const TRADUCCIONES = {
+    es: {
+        'nav_inicio': 'Inicio', 'nav_mathew': 'Mathew IA', 'nav_comparador': 'Comparador',
+        'nav_identificador': 'Identificador', 'nav_optimizador': 'Optimizador',
+        'nav_historial': 'Historial', 'nav_mapa': 'Mapa Salud', 'nav_admin': 'Administración',
+        'hero_badge': 'Plataforma de Salud Inteligente',
+        'hero_title': 'Bienvenido a',
+        'hero_desc': 'Compara precios de medicamentos en tiempo real, identifica pastillas con inteligencia artificial, y consulta con nuestro asistente clínico Mathew.',
+        'hero_btn1': 'Comparar precios', 'hero_btn2': 'Hablar con Mathew',
+        'feat1_title': 'Comparador en Tiempo Real',
+        'feat1_desc': 'Busca cualquier medicamento y compara precios en Ahumada, Dr. Simi, Salcobrand y Cruz Verde.',
+        'feat2_title': 'Identificador de Pastillas',
+        'feat2_desc': 'Sube una foto de cualquier pastilla y la IA te dice qué medicamento es.',
+        'feat3_title': 'Asistente Mathew IA',
+        'feat3_desc': 'Consulta síntomas o dudas de salud con nuestro chatbot clínico con entrada por voz.',
+        'feat4_title': 'Mapa de Salud',
+        'feat4_desc': 'Encuentra farmacias, clínicas y hospitales cercanos a tu ubicación.',
+        'popular_title': 'Medicamentos más buscados',
+        'popular_desc': 'Los precios más bajos encontrados por nuestro sistema.',
+        'server_status': 'Servidor Local Activo',
+        'comparar_btn': 'Comparar', 'limpiar_btn': 'Limpiar historial',
+        'buscar_generico': 'Buscar alternativa genérica',
+        'chat_placeholder': 'Escribe tu síntoma o habla con el micrófono...',
+        'chat_welcome': '¡Hola! Bienvenido a <strong>FarmaConnect</strong>. ¿En qué malestar o síntoma puedo orientarte?',
+        'identificar_btn': 'Identificar medicamento',
+        'optimizar_title': 'Optimizador de Receta Completa',
+        'optimizar_desc': 'Sube una foto de tu receta médica y el sistema encontrará la combinación más económica.',
+        'historial_title': 'Evolución de Precio Histórico',
+        'mapa_title': 'Sucursales Cercanas de Atención',
+    },
+    en: {
+        'nav_inicio': 'Home', 'nav_mathew': 'Mathew AI', 'nav_comparador': 'Comparator',
+        'nav_identificador': 'Pill ID', 'nav_optimizador': 'Optimizer',
+        'nav_historial': 'History', 'nav_mapa': 'Health Map', 'nav_admin': 'Admin',
+        'hero_badge': 'Smart Health Platform',
+        'hero_title': 'Welcome to',
+        'hero_desc': 'Compare drug prices in real time, identify pills with artificial intelligence, and consult with our clinical assistant Mathew.',
+        'hero_btn1': 'Compare prices', 'hero_btn2': 'Talk to Mathew',
+        'feat1_title': 'Real-Time Comparator',
+        'feat1_desc': 'Search any medicine and compare prices across Ahumada, Dr. Simi, Salcobrand and Cruz Verde.',
+        'feat2_title': 'Pill Identifier',
+        'feat2_desc': 'Upload a photo of any pill and AI will tell you what medicine it is.',
+        'feat3_title': 'Mathew AI Assistant',
+        'feat3_desc': 'Ask about symptoms or health questions with our clinical chatbot with voice input.',
+        'feat4_title': 'Health Map',
+        'feat4_desc': 'Find nearby pharmacies, clinics and hospitals using your location.',
+        'popular_title': 'Most searched medicines',
+        'popular_desc': 'The lowest prices found by our scraping system.',
+        'server_status': 'Local Server Active',
+        'comparar_btn': 'Compare', 'limpiar_btn': 'Clear history',
+        'buscar_generico': 'Search generic alternative',
+        'chat_placeholder': 'Type your symptom or speak with the microphone...',
+        'chat_welcome': 'Hello! Welcome to <strong>FarmaConnect</strong>. How can I help you with your health today?',
+        'identificar_btn': 'Identify medicine',
+        'optimizar_title': 'Complete Prescription Optimizer',
+        'optimizar_desc': 'Upload a photo of your prescription and the system will find the cheapest combination.',
+        'historial_title': 'Historical Price Evolution',
+        'mapa_title': 'Nearby Health Locations',
+    }
+};
+
+function aplicarIdioma(lang) {
+    const tr = TRADUCCIONES[lang] || TRADUCCIONES['es'];
+    // Traducir todos los elementos con data-i18n
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (tr[key]) {
+            if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+                el.placeholder = tr[key];
+            } else {
+                el.innerHTML = tr[key];
+            }
+        }
+    });
+    lucide.createIcons();
+}
+
+// Aplicar preferencias guardadas al cargar
+document.addEventListener('DOMContentLoaded', () => {
+    const font = localStorage.getItem('fc_font');
+    if (font && font !== 'Inter') setFont(font);
+    const lang = localStorage.getItem('fc_lang');
+    if (lang && lang !== 'es') aplicarIdioma(lang);
+});
+
+// =========================================================
+// SKELETON LOADERS
+// =========================================================
+
+function renderSkeletonTabla() {
+    // Genera 6 filas skeleton con anchos variables para verse natural
+    const anchos = [
+        { farm: 80, prod: 220, precio: 70 },
+        { farm: 70, prod: 180, precio: 65 },
+        { farm: 90, prod: 250, precio: 75 },
+        { farm: 75, prod: 200, precio: 60 },
+        { farm: 85, prod: 160, precio: 70 },
+        { farm: 70, prod: 230, precio: 65 }
+    ];
+
+    let filas = '';
+    anchos.forEach((a, i) => {
+        filas += `<tr class="skeleton-row" style="animation-delay:${i * 0.08}s;">
+            <td>
+                <div class="farmacia-cell">
+                    <div class="sk sk-circle"></div>
+                    <div class="sk sk-bar" style="width:${a.farm}px;height:14px;"></div>
+                </div>
+            </td>
+            <td><div class="sk sk-bar" style="width:${a.prod}px;height:14px;"></div></td>
+            <td>
+                <div class="sk sk-bar" style="width:${a.precio}px;height:20px;margin-bottom:4px;"></div>
+                <div class="sk sk-bar" style="width:${a.precio - 25}px;height:10px;"></div>
+            </td>
+            <td><div class="sk sk-pill" style="width:90px;"></div></td>
+            <td style="text-align:right;">
+                <div style="display:flex;gap:6px;justify-content:flex-end;">
+                    <div class="sk sk-square"></div>
+                    <div class="sk sk-pill" style="width:84px;"></div>
+                </div>
+            </td>
+        </tr>`;
+    });
+
+    return `
+        <div class="skeleton-summary">
+            <div class="sk sk-pill" style="width:95px;"></div>
+            <div class="sk sk-pill" style="width:85px;"></div>
+            <div class="sk sk-pill" style="width:100px;"></div>
+            <div class="sk sk-bar" style="width:110px;height:13px;"></div>
+            <span class="skeleton-status"><span class="skeleton-status-dot"></span> Consultando 4 farmacias...</span>
+        </div>
+        <div class="results-table-wrapper">
+            <table class="results-table">
+                <thead><tr>
+                    <th>Farmacia</th><th>Producto encontrado</th><th>Precio</th><th>Estado</th><th style="text-align:right;">Acción</th>
+                </tr></thead>
+                <tbody>${filas}</tbody>
+            </table>
+        </div>`;
 }
