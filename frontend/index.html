@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FarmaConnect Pro</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@400;500;600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -106,19 +106,19 @@
             </div>
             <nav class="nav-menu">
                 <button class="nav-btn active" onclick="showSection('home', this)">
-                    <i data-lucide="home"></i> Inicio
+                    <i data-lucide="home"></i> <span data-i18n="nav_inicio">Inicio</span>
                 </button>
                 <button class="nav-btn" onclick="showSection('chat', this)">
-                    <i data-lucide="message-square"></i> Mathew IA
+                    <i data-lucide="message-square"></i> <span data-i18n="nav_mathew">Mathew IA</span>
                 </button>
                 <button class="nav-btn" onclick="showSection('search', this)">
-                    <i data-lucide="bar-chart-2"></i> Comparador
+                    <i data-lucide="bar-chart-2"></i> <span data-i18n="nav_comparador">Comparador</span>
                 </button>
                 <button class="nav-btn" onclick="showSection('identificador', this)">
-                    <i data-lucide="scan"></i> Identificador
+                    <i data-lucide="scan"></i> <span data-i18n="nav_identificador">Identificador</span>
                 </button>
                 <button class="nav-btn" onclick="showSection('optimizador', this)">
-                    <i data-lucide="calculator"></i> Optimizador
+                    <i data-lucide="calculator"></i> <span data-i18n="nav_optimizador">Optimizador</span>
                 </button>
                 <button class="nav-btn" onclick="abrirHistorial(this)">
                     <i data-lucide="history"></i> Historial
@@ -165,6 +165,10 @@
                             <div id="notif-list" class="notif-list"></div>
                         </div>
                     </div>
+                    <!-- Configuración -->
+                    <button class="theme-switcher-btn" onclick="abrirConfiguracion()" title="Configuración">
+                        <i data-lucide="settings"></i>
+                    </button>
                     <button id="theme-toggle" class="theme-switcher-btn" title="Alternar Modo de Diseño">
                         <i data-lucide="moon" id="theme-icon"></i>
                     </button>
@@ -176,15 +180,15 @@
                 <!-- Hero de bienvenida -->
                 <div class="home-hero">
                     <div class="home-hero-text">
-                        <span class="home-badge">Plataforma de Salud Inteligente</span>
-                        <h1>Bienvenido a <span class="home-brand-text">FarmaConnect</span></h1>
-                        <p>Compara precios de medicamentos en tiempo real, identifica pastillas con inteligencia artificial, y consulta con nuestro asistente clínico Mathew. Todo en un solo lugar para cuidar tu salud y tu bolsillo.</p>
+                        <span class="home-badge" data-i18n="hero_badge">Plataforma de Salud Inteligente</span>
+                        <h1><span data-i18n="hero_title">Bienvenido a</span> <span class="home-brand-text">FarmaConnect</span></h1>
+                        <p data-i18n="hero_desc">Compara precios de medicamentos en tiempo real, identifica pastillas con inteligencia artificial, y consulta con nuestro asistente clínico Mathew.</p>
                         <div class="home-hero-actions">
                             <button class="btn-premium home-hero-btn" onclick="irASeccion('search')">
-                                <i data-lucide="bar-chart-2"></i> Comparar precios
+                                <i data-lucide="bar-chart-2"></i> <span data-i18n="hero_btn1">Comparar precios</span>
                             </button>
                             <button class="btn-premium home-hero-btn home-hero-btn-outline" onclick="irASeccion('chat')">
-                                <i data-lucide="message-square"></i> Hablar con Mathew
+                                <i data-lucide="message-square"></i> <span data-i18n="hero_btn2">Hablar con Mathew</span>
                             </button>
                         </div>
                     </div>
@@ -193,54 +197,38 @@
                 <!-- Features -->
                 <div class="home-features">
                     <div class="home-feature-card" onclick="irASeccion('search')">
-                        <div class="home-feature-icon" style="background:#2563eb15;color:#2563eb;">
-                            <i data-lucide="bar-chart-2"></i>
-                        </div>
-                        <h3>Comparador en Tiempo Real</h3>
-                        <p>Busca cualquier medicamento y compara precios en Ahumada, Dr. Simi, Salcobrand y Cruz Verde al instante.</p>
+                        <div class="home-feature-icon" style="background:#2563eb15;color:#2563eb;"><i data-lucide="bar-chart-2"></i></div>
+                        <h3 data-i18n="feat1_title">Comparador en Tiempo Real</h3>
+                        <p data-i18n="feat1_desc">Busca cualquier medicamento y compara precios en Ahumada, Dr. Simi, Salcobrand y Cruz Verde.</p>
                     </div>
                     <div class="home-feature-card" onclick="irASeccion('identificador')">
-                        <div class="home-feature-icon" style="background:#10b98115;color:#10b981;">
-                            <i data-lucide="scan"></i>
-                        </div>
-                        <h3>Identificador de Pastillas</h3>
-                        <p>Sube una foto de cualquier pastilla y la IA te dice qué medicamento es, para qué sirve y dónde comprarlo.</p>
+                        <div class="home-feature-icon" style="background:#10b98115;color:#10b981;"><i data-lucide="scan"></i></div>
+                        <h3 data-i18n="feat2_title">Identificador de Pastillas</h3>
+                        <p data-i18n="feat2_desc">Sube una foto de cualquier pastilla y la IA te dice qué medicamento es.</p>
                     </div>
                     <div class="home-feature-card" onclick="irASeccion('chat')">
-                        <div class="home-feature-icon" style="background:#f59e0b15;color:#f59e0b;">
-                            <i data-lucide="message-square"></i>
-                        </div>
-                        <h3>Asistente Mathew IA</h3>
-                        <p>Consulta síntomas, malestares o dudas de salud con nuestro chatbot clínico con entrada por voz.</p>
+                        <div class="home-feature-icon" style="background:#f59e0b15;color:#f59e0b;"><i data-lucide="message-square"></i></div>
+                        <h3 data-i18n="feat3_title">Asistente Mathew IA</h3>
+                        <p data-i18n="feat3_desc">Consulta síntomas o dudas de salud con nuestro chatbot clínico con entrada por voz.</p>
                     </div>
                     <div class="home-feature-card" onclick="irASeccion('map')">
-                        <div class="home-feature-icon" style="background:#ef444415;color:#ef4444;">
-                            <i data-lucide="map-pin"></i>
-                        </div>
-                        <h3>Mapa de Salud</h3>
-                        <p>Encuentra farmacias, clínicas y hospitales cercanos a tu ubicación con geolocalización automática.</p>
+                        <div class="home-feature-icon" style="background:#ef444415;color:#ef4444;"><i data-lucide="map-pin"></i></div>
+                        <h3 data-i18n="feat4_title">Mapa de Salud</h3>
+                        <p data-i18n="feat4_desc">Encuentra farmacias, clínicas y hospitales cercanos a tu ubicación.</p>
                     </div>
                 </div>
 
-                <!-- Carrusel de medicamentos populares -->
+                <!-- Carrusel de medicamentos populares (rediseñado) -->
                 <div class="home-popular-section">
                     <div class="home-popular-header">
-                        <h2>Medicamentos más buscados</h2>
-                        <p>Los precios más bajos encontrados por nuestro sistema de scraping.</p>
+                        <h2 data-i18n="popular_title">Medicamentos más buscados</h2>
+                        <p data-i18n="popular_desc">Los precios más bajos encontrados por nuestro sistema.</p>
                     </div>
-                    <div class="home-carousel-wrapper">
-                        <button class="carousel-arrow carousel-arrow-left" onclick="scrollCarousel(-1)">
-                            <i data-lucide="chevron-left"></i>
-                        </button>
-                        <div class="home-carousel" id="home-carousel">
-                            <div class="home-carousel-empty" id="carousel-empty">
-                                <i data-lucide="search" style="width:32px;height:32px;opacity:0.3;"></i>
-                                <p>Aún no hay medicamentos registrados. Usa el comparador para poblar el catálogo.</p>
-                            </div>
+                    <div class="home-carousel" id="home-carousel">
+                        <div class="home-carousel-empty" id="carousel-empty">
+                            <i data-lucide="search" style="width:32px;height:32px;opacity:0.3;"></i>
+                            <p>Aún no hay medicamentos registrados.</p>
                         </div>
-                        <button class="carousel-arrow carousel-arrow-right" onclick="scrollCarousel(1)">
-                            <i data-lucide="chevron-right"></i>
-                        </button>
                     </div>
                 </div>
             </div>
@@ -550,6 +538,83 @@
             <button class="auth-submit-btn" onclick="guardarUsuario()">
                 <span>Guardar cambios</span><i data-lucide="check"></i>
             </button>
+        </div>
+    </div>
+
+    <!-- Modal de Configuración -->
+    <div id="settings-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-card" style="max-width:480px;">
+            <div class="modal-header">
+                <h3><i data-lucide="settings" style="width:20px;height:20px;vertical-align:middle;margin-right:6px;"></i> Configuración</h3>
+                <button class="modal-close" onclick="cerrarConfiguracion()">✕</button>
+            </div>
+
+            <!-- Tema -->
+            <div class="settings-group">
+                <div class="settings-label">
+                    <i data-lucide="palette" style="width:16px;height:16px;"></i>
+                    <span>Apariencia</span>
+                </div>
+                <div class="settings-theme-options">
+                    <button class="settings-theme-btn" id="theme-opt-light" onclick="setTheme('light')">
+                        <i data-lucide="sun"></i> Claro
+                    </button>
+                    <button class="settings-theme-btn" id="theme-opt-dark" onclick="setTheme('dark')">
+                        <i data-lucide="moon"></i> Oscuro
+                    </button>
+                </div>
+            </div>
+
+            <!-- Idioma -->
+            <div class="settings-group">
+                <div class="settings-label">
+                    <i data-lucide="globe" style="width:16px;height:16px;"></i>
+                    <span>Idioma</span>
+                </div>
+                <div class="settings-theme-options">
+                    <button class="settings-theme-btn" id="lang-opt-es" onclick="setIdioma('es')">
+                        Español
+                    </button>
+                    <button class="settings-theme-btn" id="lang-opt-en" onclick="setIdioma('en')">
+                        English
+                    </button>
+                </div>
+            </div>
+
+            <!-- Tipografía -->
+            <div class="settings-group">
+                <div class="settings-label">
+                    <i data-lucide="type" style="width:16px;height:16px;"></i>
+                    <span>Tipografía</span>
+                </div>
+                <div class="settings-font-options">
+                    <button class="settings-font-btn" onclick="setFont('Inter')" data-font="Inter">
+                        <span style="font-family:'Inter',sans-serif;">Inter</span>
+                        <small>Moderna y limpia</small>
+                    </button>
+                    <button class="settings-font-btn" onclick="setFont('Poppins')" data-font="Poppins">
+                        <span style="font-family:'Poppins',sans-serif;">Poppins</span>
+                        <small>Redondeada y amigable</small>
+                    </button>
+                    <button class="settings-font-btn" onclick="setFont('Roboto')" data-font="Roboto">
+                        <span style="font-family:'Roboto',sans-serif;">Roboto</span>
+                        <small>Clásica de Google</small>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Notificaciones -->
+            <div class="settings-group">
+                <div class="settings-label">
+                    <i data-lucide="bell" style="width:16px;height:16px;"></i>
+                    <span>Notificaciones de precios</span>
+                </div>
+                <label class="settings-toggle">
+                    <input type="checkbox" id="settings-notif-toggle" onchange="toggleNotificaciones(this.checked)" checked>
+                    <span class="settings-toggle-slider"></span>
+                    <span class="settings-toggle-text" id="settings-notif-text">Activadas</span>
+                </label>
+            </div>
         </div>
     </div>
 
