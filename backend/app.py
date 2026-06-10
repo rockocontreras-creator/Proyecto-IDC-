@@ -10,10 +10,14 @@ from webdriver_manager.chrome import ChromeDriverManager
 import threading
 import sqlite3
 import hashlib
+import hmac
 import secrets
 import time
 import json
 import os
+import re
+import urllib.request
+import urllib.parse
 from groq import Groq
 
 app = Flask(__name__)
@@ -33,25 +37,45 @@ HEADLESS = True
 
 # =========================================================
 # TOKENS EN MEMORIA (reemplaza flask.session — sin cookies)
-# dict { token_str -> { id, nombre, correo } }
 # =========================================================
-_tokens: dict = {}
+# TOKENS STATELESS (HMAC) — sobreviven reinicios del servidor
+# El token codifica el user_id firmado con HMAC-SHA256.
+# Al verificar, se valida la firma y se busca el usuario en la BD.
+# =========================================================
 
 def crear_token(user_id: int, nombre: str, correo: str, es_admin: int = 0) -> str:
-    token = secrets.token_hex(32)
-    _tokens[token] = {"id": user_id, "nombre": nombre, "correo": correo, "es_admin": bool(es_admin)}
-    return token
+    payload = str(user_id)
+    sig = hmac.new(APP_SECRET.encode(), payload.encode(), 'sha256').hexdigest()[:40]
+    return f"{payload}:{sig}"
 
 def resolver_token() -> dict | None:
-    """Lee el header Authorization: Bearer <token> y devuelve el usuario o None."""
+    """Lee el header Authorization: Bearer <uid:firma> y verifica contra la BD."""
     auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer "):
-        token = auth[7:]
-        return _tokens.get(token)
-    return None
+    if not auth.startswith("Bearer "):
+        return None
+    token = auth[7:]
+    if ':' not in token:
+        return None
+    parts = token.split(":", 1)
+    uid_str, sig = parts
+    # Verificar firma HMAC
+    expected = hmac.new(APP_SECRET.encode(), uid_str.encode(), 'sha256').hexdigest()[:40]
+    if not hmac.compare_digest(sig, expected):
+        return None
+    # Buscar usuario en la BD
+    try:
+        conn = sqlite3.connect('farmacia.db')
+        c = conn.cursor()
+        c.execute("SELECT id_usuario, nombre, correo, es_admin FROM usuarios WHERE id_usuario = ?", (int(uid_str),))
+        row = c.fetchone()
+        conn.close()
+        if not row:
+            return None
+        return {"id": row[0], "nombre": row[1], "correo": row[2], "es_admin": bool(row[3])}
+    except Exception:
+        return None
 
 def resolver_admin() -> dict | None:
-    """Devuelve el usuario solo si tiene sesión válida Y es administrador."""
     u = resolver_token()
     if u and u.get("es_admin"):
         return u
@@ -195,9 +219,7 @@ def login():
 
 @app.route('/logout', methods=['POST'])
 def logout():
-    auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer "):
-        _tokens.pop(auth[7:], None)
+    # Token es stateless — solo el frontend necesita borrarlo de localStorage
     return jsonify({"mensaje": "Sesión cerrada."})
 
 
@@ -277,10 +299,7 @@ def admin_editar_usuario(uid):
             c.execute("UPDATE usuarios SET nombre=?, correo=?, es_admin=? WHERE id_usuario=?",
                       (nombre, correo, es_admin, uid))
         conn.commit()
-        # Mantener sincronizados los tokens activos de ese usuario
-        for tk, info in _tokens.items():
-            if info["id"] == uid:
-                info["nombre"] = nombre; info["correo"] = correo; info["es_admin"] = bool(es_admin)
+        # Tokens son stateless — la próxima verificación leerá los datos actualizados de la BD
         return jsonify({"mensaje": "Usuario actualizado."})
     except sqlite3.IntegrityError:
         return jsonify({"error": "Ese correo ya está en uso por otro usuario."}), 409
@@ -767,19 +786,228 @@ def logic_salcobrand(remedio, driver, res):
         print(f"Error Salcobrand: {e}")
 
 
-def logic_cruzverde(remedio, driver, res):
+def logic_cruzverde(remedio, res):
+    """Cruz Verde via SSR (Googlebot). El sitio sirve HTML pre-renderizado para crawlers."""
+    query = urllib.parse.quote(remedio)
+
     try:
-        driver.get(f"https://www.cruzverde.cl/search?query={remedio}")
-        try:
-            WebDriverWait(driver, 15).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "a[href*='/product/'], [class*='product-tile'], [class*='price']"))
-            )
-        except Exception:
-            pass
-        time.sleep(2.5)
-        _agregar_resultados(_extraer_generico(driver), "Cruz Verde", "#009639", res)
+        req = urllib.request.Request(
+            f"https://www.cruzverde.cl/search?query={query}",
+            headers={
+                "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+                "Accept": "text/html",
+                "Accept-Language": "es-CL,es;q=0.9",
+            }
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            html = resp.read().decode('utf-8', errors='ignore')
+
+        if len(html) < 5000:
+            print(f"Cruz Verde SSR: solo {len(html)} chars, sin contenido.")
+            return
+
+        productos = []
+
+        # =============================================
+        # Estrategia 1: Buscar JSON-LD (schema.org Product)
+        # =============================================
+        ld_blocks = re.findall(r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>', html, re.DOTALL)
+        for ld in ld_blocks:
+            try:
+                ld_data = json.loads(ld)
+                items = []
+                if isinstance(ld_data, list):
+                    items = ld_data
+                elif isinstance(ld_data, dict):
+                    if ld_data.get('@type') == 'Product':
+                        items = [ld_data]
+                    elif 'itemListElement' in ld_data:
+                        items = [i.get('item', i) for i in ld_data['itemListElement']]
+                for item in items[:3]:
+                    nombre = item.get('name', '')
+                    offers = item.get('offers', {})
+                    if isinstance(offers, list):
+                        offers = offers[0] if offers else {}
+                    precio = offers.get('price', 0)
+                    link = item.get('url', '')
+                    if nombre and precio:
+                        productos.append({
+                            "farmacia": "Cruz Verde", "nombre": nombre,
+                            "precio": f"{int(float(precio)):,}".replace(",", "."),
+                            "link": link or f"https://www.cruzverde.cl/search?query={query}",
+                            "color": "#009639", "oferta": False, "precio_original": None
+                        })
+            except (json.JSONDecodeError, ValueError):
+                continue
+
+        if productos:
+            res.extend(productos[:3])
+            print(f"Cruz Verde JSON-LD: {len(productos[:3])} producto(s)")
+            return
+
+        # =============================================
+        # Estrategia 2: Buscar estado Angular/JS embebido
+        # =============================================
+        state_match = re.search(r'window\.__(?:STATE|INITIAL_STATE|APP_STATE|PRELOADED)__\s*=\s*(\{.*?\});?\s*</script>', html, re.DOTALL)
+        if state_match:
+            try:
+                state = json.loads(state_match.group(1))
+                print(f"Cruz Verde: Estado Angular encontrado, claves: {list(state.keys())[:8]}")
+            except json.JSONDecodeError:
+                pass
+
+        # =============================================
+        # Estrategia 3: Regex en HTML pre-renderizado
+        # Filtrar SVG y buscar solo productos reales
+        # =============================================
+        # Eliminar todos los bloques SVG del HTML para no matchear sus atributos
+        html_sin_svg = re.sub(r'<svg[^>]*>.*?</svg>', '', html, flags=re.DOTALL)
+        html_sin_svg = re.sub(r'<style[^>]*>.*?</style>', '', html_sin_svg, flags=re.DOTALL)
+
+        # Buscar precios CLP: $ X.XXX o $X.XXX (con o sin punto de miles)
+        precios = re.findall(r'\$\s?([\d]+(?:\.[\d]{3})*)', html_sin_svg)
+        precios = [p for p in precios if int(p.replace('.', '')) >= 100]  # filtrar precios < $100
+
+        # Buscar enlaces a productos (.html con slug)
+        links = re.findall(r'href=["\'](/[a-z0-9][a-z0-9\-]+/\d+\.html)["\']', html_sin_svg)
+        links = list(dict.fromkeys(links))  # dedup manteniendo orden
+
+        # Buscar nombres de producto: textos sustanciales cerca de precios
+        # Los nombres suelen estar en elementos con clases product-name, title, o como texto de enlaces
+        nombres = re.findall(
+            r'(?:class=["\'][^"\']*(?:product-name|productName|product-title|name)[^"\']*["\'][^>]*>|'
+            r'<h[23][^>]*>|<a[^>]*title=["\'])([^<"\']{10,100})',
+            html_sin_svg
+        )
+        # Filtrar nombres que no son productos
+        nombres_filtrados = []
+        blacklist = ['cruz verde', 'buscar', 'cerrar', 'iniciar', 'menú', 'filtrar',
+                     'ordenar', 'home', 'logo', 'group', 'rectangle', 'path', 'svg',
+                     'cookie', 'suscri', 'despacho', 'retiro', 'bolsa', 'registro']
+        for n in nombres:
+            n_clean = n.strip()
+            if len(n_clean) < 8:
+                continue
+            if any(bl in n_clean.lower() for bl in blacklist):
+                continue
+            if n_clean not in nombres_filtrados:
+                nombres_filtrados.append(n_clean)
+
+        # Emparejar: nombre + precio + link
+        for i in range(min(3, max(len(precios), len(links), len(nombres_filtrados)))):
+            nombre = nombres_filtrados[i] if i < len(nombres_filtrados) else f"Producto Cruz Verde"
+            precio = precios[i] if i < len(precios) else None
+            link = f"https://www.cruzverde.cl{links[i]}" if i < len(links) else f"https://www.cruzverde.cl/search?query={query}"
+
+            if not precio:
+                continue
+
+            # Detectar oferta: si hay un precio mayor justo después
+            precio_original = None
+            if i * 2 + 1 < len(precios):
+                val_actual = int(precios[i].replace('.', ''))
+                val_orig = int(precios[i * 2 + 1].replace('.', '')) if i * 2 + 1 < len(precios) else 0
+                if val_orig > val_actual:
+                    precio_original = precios[i * 2 + 1]
+
+            productos.append({
+                "farmacia": "Cruz Verde", "nombre": nombre, "precio": precio,
+                "link": link, "color": "#009639",
+                "oferta": bool(precio_original),
+                "precio_original": precio_original
+            })
+
+        if productos:
+            res.extend(productos)
+            print(f"Cruz Verde SSR regex: {len(productos)} producto(s)")
+        else:
+            # Debug: qué encontró cada regex
+            print(f"Cruz Verde SSR: {len(html)} chars, {len(precios)} precios, {len(links)} links, {len(nombres_filtrados)} nombres")
+            print(f"  Precios: {precios[:5]}")
+            print(f"  Links: {links[:3]}")
+            print(f"  Nombres: {nombres_filtrados[:5]}")
+
     except Exception as e:
         print(f"Error Cruz Verde: {e}")
+
+
+def _parsear_cruzverde_json(data, remedio):
+    """Parsea respuesta JSON de OCAPI/SCAPI de Cruz Verde."""
+    productos = []
+    
+    # OCAPI format: { "hits": [{ "product_id", "product_name", "price", ... }] }
+    hits = data.get('hits') or data.get('results') or data.get('products') or data.get('data', {}).get('products', [])
+    if not hits and isinstance(data, list):
+        hits = data
+
+    if not hits:
+        # Buscar en sugerencias
+        sugs = data.get('suggestions') or data.get('products', {}).get('suggestions', [])
+        if sugs:
+            hits = sugs
+
+    for item in (hits or [])[:3]:
+        nombre = item.get('product_name') or item.get('name') or item.get('productName') or item.get('title') or ''
+        precio = item.get('price') or item.get('prices', {}).get('sale') or item.get('salePrice') or 0
+        precio_orig = item.get('list_price') or item.get('prices', {}).get('list') or item.get('listPrice') or 0
+        prod_id = item.get('product_id') or item.get('id') or item.get('productId') or ''
+        link = item.get('link') or item.get('url') or item.get('productUrl') or ''
+        
+        if not link and prod_id:
+            slug = nombre.lower().replace(' ', '-').replace('.', '') if nombre else remedio
+            link = f"https://www.cruzverde.cl/{slug}/{prod_id}.html"
+        if link and not link.startswith('http'):
+            link = 'https://www.cruzverde.cl' + link
+
+        if nombre and precio:
+            if isinstance(precio, (int, float)):
+                precio_str = f"${int(precio):,}".replace(",", ".")
+            else:
+                precio_str = str(precio)
+
+            oferta = False
+            precio_original_str = None
+            if precio_orig and float(precio_orig) > float(precio):
+                oferta = True
+                if isinstance(precio_orig, (int, float)):
+                    precio_original_str = f"${int(precio_orig):,}".replace(",", ".")
+
+            productos.append({
+                "farmacia": "Cruz Verde", "nombre": nombre, "precio": precio_str,
+                "link": link, "color": "#009639",
+                "oferta": oferta, "precio_original": precio_original_str
+            })
+    return productos
+
+
+def _parsear_cruzverde_html(body, remedio):
+    """Parsea HTML de Search-Show/UpdateGrid de Cruz Verde."""
+    productos = []
+    price_re = re.compile(r'\$\s?([\d.,]+)')
+
+    # Buscar product tiles
+    links = re.findall(r'href=["\']([^"\']*?\.html)["\']', body)
+    product_links = [('https://www.cruzverde.cl' + l if l.startswith('/') else l)
+                     for l in links if '.html' in l and '/search' not in l]
+    product_links = list(dict.fromkeys(product_links))[:3]
+
+    names = re.findall(r'(?:title|data-name|aria-label|alt)=["\']([^"\']{8,100})["\']', body)
+    names = [n for n in names if len(n) > 5 and not any(x in n for x in ['Cruz Verde', 'Buscar', 'Cerrar', 'Iniciar', 'Google'])]
+    names = list(dict.fromkeys(names))
+
+    prices = price_re.findall(body)
+
+    for i in range(min(3, max(len(product_links), len(names)))):
+        nombre = names[i] if i < len(names) else f"Producto Cruz Verde"
+        link = product_links[i] if i < len(product_links) else f"https://www.cruzverde.cl/search?q={urllib.parse.quote(remedio)}"
+        precio = prices[i] if i < len(prices) else None
+        if not precio:
+            continue
+        productos.append({
+            "farmacia": "Cruz Verde", "nombre": nombre, "precio": f"${precio}",
+            "link": link, "color": "#009639", "oferta": False, "precio_original": None
+        })
+    return productos
 
 
 @app.route('/bioequivalente', methods=['POST'])
@@ -836,7 +1064,8 @@ def scraping_manual():
         threading.Thread(target=scrape_task, args=(logic_ahumada, remedio, res)),
         threading.Thread(target=scrape_task, args=(logic_drsimi, remedio, res)),
         threading.Thread(target=scrape_task, args=(logic_salcobrand, remedio, res)),
-        threading.Thread(target=scrape_task, args=(logic_cruzverde, remedio, res))
+        # Cruz Verde usa HTTP directo (no Selenium) — no necesita scrape_task con Chrome
+        threading.Thread(target=logic_cruzverde, args=(remedio, res))
     ]
     for t in threads: t.start()
     for t in threads: t.join()
@@ -1070,6 +1299,7 @@ def consultar_asistente():
 
     data = request.json
     pregunta = data.get('pregunta', '')
+    idioma_usuario = data.get('idioma', 'es')
     archivo_base64 = data.get('archivo_base64')
     latitud = data.get('latitud')
     longitud = data.get('longitud')
@@ -1133,8 +1363,10 @@ def consultar_asistente():
         "5. Cuando el usuario pregunte por farmacias, clínicas u hospitales cercanos, oriéntalo geográficamente usando "
         "la ubicación proporcionada (si la hay) y recomiéndale usar la sección 'Mapa Salud' de FarmaConnect para ver un mapa interactivo.\n"
         "6. Explica brevemente para qué sirve cada fármaco mencionado. Incluye SIEMPRE advertencia de consultar médico.\n"
-        "7. Responde siempre en español. Sé conciso pero informativo."
-        f"{contexto_ubicacion}"
+        + ("7. Responde SIEMPRE en INGLÉS (English). Sé conciso pero informativo."
+           if idioma_usuario == 'en' else
+           "7. Responde siempre en español. Sé conciso pero informativo.")
+        + f"{contexto_ubicacion}"
     )
 
     try:
