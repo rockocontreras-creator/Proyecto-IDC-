@@ -15,6 +15,7 @@
     --radius-md: 12px;
     --radius-sm: 8px;
     --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    --font-family: 'Inter', sans-serif;
 }
 
 .dark-mode {
@@ -26,7 +27,7 @@
     --border: #334155;
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: var(--font-family); }
 
 body {
     background: var(--bg-main);
@@ -2661,4 +2662,494 @@ tr:last-child td { border-bottom: none; }
 
 @media (max-width: 768px) {
     .opt-strat-total { font-size: 1.3rem; }
+}
+
+/* ==========================================================================
+   MODAL DE CONFIGURACIÓN
+   ========================================================================== */
+
+.settings-group {
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.settings-group:last-child { border-bottom: none; }
+
+.settings-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text-main);
+    margin-bottom: 12px;
+}
+
+/* Botones de tema/idioma */
+.settings-theme-options {
+    display: flex;
+    gap: 8px;
+}
+
+.settings-theme-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-main);
+    color: var(--text-muted);
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.settings-theme-btn:hover { border-color: var(--primary); color: var(--text-main); }
+
+.settings-theme-btn.active {
+    border-color: var(--primary);
+    background: rgba(37, 99, 235, 0.08);
+    color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.settings-theme-btn i { width: 16px; height: 16px; }
+
+/* Botones de fuente */
+.settings-font-options {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.settings-font-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-main);
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.settings-font-btn:hover { border-color: var(--primary); }
+
+.settings-font-btn.active {
+    border-color: var(--primary);
+    background: rgba(37, 99, 235, 0.08);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.settings-font-btn span {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-main);
+}
+
+.settings-font-btn small {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+
+/* Toggle switch */
+.settings-toggle {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+}
+
+.settings-toggle input { display: none; }
+
+.settings-toggle-slider {
+    position: relative;
+    width: 44px;
+    height: 24px;
+    background: var(--border);
+    border-radius: 12px;
+    transition: var(--transition);
+}
+
+.settings-toggle-slider::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: white;
+    transition: var(--transition);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.settings-toggle input:checked + .settings-toggle-slider {
+    background: var(--primary);
+}
+
+.settings-toggle input:checked + .settings-toggle-slider::after {
+    transform: translateX(20px);
+}
+
+.settings-toggle-text {
+    font-size: 0.88rem;
+    font-weight: 500;
+    color: var(--text-main);
+}
+
+/* ==========================================================================
+   POLISH PROFESIONAL — GLASSMORPHISM, ANIMACIONES, REFINAMIENTO
+   ========================================================================== */
+
+/* Glassmorphism en sidebar */
+.sidebar {
+    background: rgba(255,255,255,0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+}
+.dark-mode .sidebar {
+    background: rgba(30,41,59,0.85);
+}
+
+/* Glassmorphism en tarjetas premium */
+.card-premium {
+    background: rgba(255,255,255,0.8);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+.dark-mode .card-premium {
+    background: rgba(30,41,59,0.8);
+}
+
+/* Transiciones globales suaves */
+* { transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); }
+
+/* Home hero mejorado */
+.home-hero {
+    padding: 52px 44px;
+    margin-bottom: 28px;
+    background: linear-gradient(135deg, rgba(37,99,235,0.06) 0%, rgba(16,185,129,0.04) 50%, rgba(139,92,246,0.03) 100%);
+}
+.home-hero-text h1 { font-size: 2.4rem; margin-bottom: 16px; }
+.home-hero-text p { font-size: 1rem; max-width: 580px; }
+.home-hero-btn { padding: 13px 28px; font-size: 0.95rem; border-radius: 10px; }
+
+/* Feature cards mejoradas */
+.home-features { gap: 18px; margin-bottom: 28px; }
+.home-feature-card {
+    padding: 26px;
+    border-radius: 14px;
+    background: rgba(255,255,255,0.6);
+    backdrop-filter: blur(8px);
+}
+.dark-mode .home-feature-card {
+    background: rgba(30,41,59,0.6);
+}
+.home-feature-card h3 { font-size: 0.95rem; }
+.home-feature-card p { font-size: 0.82rem; line-height: 1.5; }
+
+/* Carrusel rediseñado — grid de 3 columnas en vez de scroll horizontal */
+.home-carousel {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    overflow: visible;
+    padding: 0;
+    scroll-snap-type: none;
+}
+
+.home-carousel::-webkit-scrollbar { display: none; }
+
+.carousel-card {
+    min-width: unset;
+    max-width: unset;
+    padding: 22px;
+    border-radius: 14px;
+    scroll-snap-align: unset;
+    background: rgba(255,255,255,0.5);
+    backdrop-filter: blur(6px);
+}
+.dark-mode .carousel-card {
+    background: rgba(15,23,42,0.5);
+}
+
+.carousel-card-price { font-size: 1.6rem; }
+.carousel-card-name { font-size: 0.78rem; letter-spacing: 0.02em; }
+
+/* Ocultar las flechas del carrusel (ya no son necesarias con grid) */
+.carousel-arrow { display: none; }
+.home-carousel-wrapper { display: block; }
+
+/* Popular section */
+.home-popular-section {
+    padding: 24px 28px;
+    border-radius: 16px;
+}
+.home-popular-header h2 { font-size: 1.2rem; }
+.home-popular-header { margin-bottom: 16px; }
+
+/* Botones con micro-interacciones */
+.btn-premium {
+    border-radius: 10px;
+    box-shadow: 0 2px 8px -3px rgba(37, 99, 235, 0.3);
+}
+.btn-premium:hover {
+    box-shadow: 0 6px 16px -4px rgba(37, 99, 235, 0.4);
+}
+
+/* Tabla de resultados más pulida */
+.results-table-wrapper {
+    border-radius: 14px;
+    box-shadow: 0 4px 20px -10px rgba(0,0,0,0.06);
+}
+
+.results-table tbody td { padding: 16px 20px; }
+
+/* Chat burbujas más pulidas */
+.chat-bubble-bot {
+    border-radius: 6px 18px 18px 18px;
+    background: rgba(255,255,255,0.7);
+    backdrop-filter: blur(8px);
+}
+.dark-mode .chat-bubble-bot {
+    background: rgba(30,41,59,0.7);
+}
+
+.chat-bubble-user {
+    border-radius: 18px 18px 6px 18px;
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+}
+
+/* Animación de entrada más suave */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.active-section { animation: fadeIn 0.35s ease-out; }
+
+/* Responsive mejorado */
+@media (max-width: 768px) {
+    .home-carousel { grid-template-columns: 1fr 1fr; }
+    .home-hero-text h1 { font-size: 1.6rem; }
+    .home-hero { padding: 28px 20px; }
+}
+
+@media (max-width: 480px) {
+    .home-carousel { grid-template-columns: 1fr; }
+}
+
+/* ==========================================================================
+   CARRUSEL AUTO-ROTATIVO (3 TARJETAS GRANDES)
+   ========================================================================== */
+
+.home-carousel {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+    position: relative;
+    padding-bottom: 36px;
+}
+
+.carousel-card-lg {
+    padding: 28px 26px;
+    border-radius: 16px;
+    position: relative;
+    animation: carouselSlideIn 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    min-height: 170px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    justify-content: center;
+}
+
+@keyframes carouselSlideIn {
+    from { opacity: 0; transform: translateX(24px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+.carousel-card-lg .carousel-card-price {
+    font-size: 2.2rem;
+    font-weight: 800;
+}
+
+.carousel-card-lg .carousel-card-name {
+    font-size: 0.92rem;
+    font-weight: 700;
+}
+
+.carousel-card-lg .carousel-card-farm {
+    font-size: 0.85rem;
+}
+
+.carousel-card-badge-top {
+    position: absolute;
+    top: 14px;
+    right: 16px;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    background: var(--bg-main);
+    padding: 3px 10px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+}
+
+/* Dots de paginación */
+.carousel-dots-row {
+    position: absolute;
+    bottom: 4px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 8px;
+    grid-column: 1 / -1;
+}
+
+.carousel-page-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: none;
+    background: var(--border);
+    cursor: pointer;
+    transition: var(--transition);
+    padding: 0;
+}
+
+.carousel-page-dot.active {
+    background: var(--primary);
+    width: 24px;
+    border-radius: 4px;
+}
+
+.carousel-page-dot:hover { background: var(--primary); opacity: 0.7; }
+
+@media (max-width: 768px) {
+    .home-carousel { grid-template-columns: 1fr; }
+    .carousel-card-lg .carousel-card-price { font-size: 1.6rem; }
+}
+
+/* ==========================================================================
+   SKELETON LOADERS (estilo LinkedIn/YouTube)
+   ========================================================================== */
+
+/* Elemento base skeleton con animación shimmer */
+.sk {
+    position: relative;
+    overflow: hidden;
+    background: var(--border);
+    border-radius: 6px;
+    opacity: 0.7;
+}
+
+/* El brillo deslizante */
+.sk::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.55) 50%,
+        transparent 100%
+    );
+    transform: translateX(-100%);
+    animation: shimmer 1.6s infinite;
+}
+
+.dark-mode .sk::after {
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.08) 50%,
+        transparent 100%
+    );
+}
+
+@keyframes shimmer {
+    100% { transform: translateX(100%); }
+}
+
+/* Formas skeleton */
+.sk-circle {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    border-radius: 50%;
+}
+
+.sk-bar {
+    height: 14px;
+    border-radius: 4px;
+}
+
+.sk-pill {
+    height: 24px;
+    border-radius: 12px;
+}
+
+.sk-square {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+}
+
+/* Filas skeleton con fade-in escalonado */
+.skeleton-row {
+    animation: skeletonFadeIn 0.4s ease both;
+}
+
+@keyframes skeletonFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.skeleton-row td {
+    padding: 16px 20px;
+}
+
+/* Barra de resumen skeleton */
+.skeleton-summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 0;
+    flex-wrap: wrap;
+}
+
+/* Indicador de estado en vivo */
+.skeleton-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    margin-left: auto;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--primary);
+}
+
+.skeleton-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--primary);
+    animation: statusPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes statusPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.75); }
+}
+
+/* Skeleton en tarjetas del carrusel */
+.sk-card {
+    pointer-events: none;
+    gap: 12px !important;
+    justify-content: center;
 }
