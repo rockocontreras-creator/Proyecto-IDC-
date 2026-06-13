@@ -175,7 +175,8 @@ function mostrarApp(usuario) {
     const iniciales = usuario.nombre.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase();
     document.getElementById('user-avatar-initials').textContent = iniciales;
     document.getElementById('sidebar-user-name').textContent = usuario.nombre;
-    document.getElementById('sidebar-user-email').textContent = usuario.correo;
+    const emailEl = document.getElementById('sidebar-user-email');
+    if (emailEl) emailEl.textContent = usuario.correo;
 
     // Mostrar el botón de administración solo si el usuario es admin
     const navAdmin = document.getElementById('nav-admin-btn');
@@ -186,6 +187,9 @@ function mostrarApp(usuario) {
 
     // Verificar alertas de precio
     verificarAlertas();
+
+    // Actualizar índice de ahorro en sidebar
+    actualizarAhorroSidebar();
 
     lucide.createIcons();
 }
@@ -293,6 +297,7 @@ function renderCarouselPage() {
     let html = '';
     visibles.forEach(m => {
         const precioFormateado = m.precio_min ? `$${m.precio_min.toLocaleString('es-CL')}` : '—';
+        const spark = generarSparkline(m.tendencia, m.color);
         html += `<div class="carousel-card carousel-card-lg" onclick="irASeccion('search'); setTimeout(()=>{ document.getElementById('manual-search').value='${m.nombre}'; }, 100);">
             <div class="carousel-card-badge-top">${m.busquedas} búsqueda${m.busquedas !== 1 ? 's' : ''}</div>
             <div class="carousel-card-price">${precioFormateado} <span>CLP</span></div>
@@ -301,6 +306,7 @@ function renderCarouselPage() {
                 <span class="carousel-dot" style="background:${m.color};"></span>
                 ${m.farmacia || 'Sin datos'}
             </div>
+            ${spark}
         </div>`;
     });
 
@@ -314,6 +320,62 @@ function renderCarouselPage() {
     }
 
     carousel.innerHTML = html;
+}
+
+function generarSparkline(datos, colorFarmacia) {
+    // Necesita al menos 2 puntos para dibujar una línea
+    if (!datos || datos.length < 2) {
+        return `<div class="sparkline-empty">Sin tendencia suficiente</div>`;
+    }
+
+    const W = 150, H = 36, pad = 3;
+    const min = Math.min(...datos);
+    const max = Math.max(...datos);
+    const rango = max - min || 1;
+
+    // Calcular puntos (x, y) normalizados al tamaño del SVG
+    const puntos = datos.map((val, i) => {
+        const x = pad + (i / (datos.length - 1)) * (W - pad * 2);
+        const y = H - pad - ((val - min) / rango) * (H - pad * 2);
+        return [x, y];
+    });
+
+    // Determinar tendencia: comparar primer vs último precio
+    const subio = datos[datos.length - 1] > datos[0];
+    const bajo = datos[datos.length - 1] < datos[0];
+    // Para precios: que BAJE es bueno (verde), que SUBA es malo (rojo)
+    const colorLinea = bajo ? '#10b981' : subio ? '#ef4444' : '#94a3b8';
+
+    // Construir el path de la línea
+    const pathLinea = puntos.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
+
+    // Path del área de relleno (cierra hacia abajo)
+    const pathArea = `${pathLinea} L ${puntos[puntos.length - 1][0].toFixed(1)} ${H} L ${puntos[0][0].toFixed(1)} ${H} Z`;
+
+    // ID único para el gradiente
+    const gradId = 'spark-' + Math.random().toString(36).substr(2, 6);
+
+    // Cálculo del cambio porcentual
+    const cambioPct = (((datos[datos.length - 1] - datos[0]) / datos[0]) * 100).toFixed(1);
+    const flechaIcon = bajo ? '↓' : subio ? '↑' : '→';
+    const cambioTexto = cambioPct > 0 ? `+${cambioPct}%` : `${cambioPct}%`;
+
+    return `<div class="sparkline-wrap">
+        <svg class="sparkline-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+            <defs>
+                <linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="${colorLinea}" stop-opacity="0.25"/>
+                    <stop offset="100%" stop-color="${colorLinea}" stop-opacity="0"/>
+                </linearGradient>
+            </defs>
+            <path d="${pathArea}" fill="url(#${gradId})"/>
+            <path d="${pathLinea}" fill="none" stroke="${colorLinea}" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="${puntos[puntos.length - 1][0].toFixed(1)}" cy="${puntos[puntos.length - 1][1].toFixed(1)}"
+                    r="2.5" fill="${colorLinea}"/>
+        </svg>
+        <span class="sparkline-trend" style="color:${colorLinea};">${flechaIcon} ${cambioTexto}</span>
+    </div>`;
 }
 
 function irAPaginaCarrusel(page) {
@@ -669,9 +731,10 @@ async function startScraping() {
         const data = await r.json();
         ultimosResultados = JSON.stringify(data.precios);
         todosResultados = data.precios || [];
+        window.farmaciasSinDatos = data.farmacias_sin_datos || [];
 
         if (todosResultados.length === 0) {
-            res.innerHTML = "<p style='color:var(--text-muted);padding:10px;'>No se encontraron ofertas para este término.</p>";
+            res.innerHTML = "<p style='color:var(--text-muted);padding:10px;'>No se encontraron resultados para este término en ninguna farmacia. Intenta con otro nombre (ej: 'paracetamol' en vez de una marca específica).</p>";
             return;
         }
 
@@ -682,6 +745,13 @@ async function startScraping() {
         document.querySelector('.filter-tab').classList.add('active');
 
         renderTablaResultados(todosResultados);
+        // Cargar precios reportados por la comunidad para este medicamento
+        cargarPreciosComunidad(q);
+        // Mostrar calculadora de tratamiento
+        document.getElementById('calc-tratamiento').style.display = 'block';
+        calcularTratamiento();
+        // Actualizar el ahorro en el sidebar
+        actualizarAhorroSidebar();
     } catch {
         res.innerHTML = "<p style='color:var(--text-muted);'>El servidor Flask en el puerto 8000 no responde.</p>";
     } finally {
@@ -763,7 +833,17 @@ function renderTablaResultados(items) {
     });
 
     html += `</tbody></table></div>`;
+
+    // Aviso honesto: farmacias que no devolvieron resultados
+    if (window.farmaciasSinDatos && window.farmaciasSinDatos.length > 0) {
+        html += `<div class="farmacias-sin-datos">
+            <i data-lucide="info" style="width:14px;height:14px;"></i>
+            Sin resultados en: ${window.farmaciasSinDatos.join(', ')}. Puede que no vendan este producto o que su sitio no respondiera.
+        </div>`;
+    }
+
     res.innerHTML = html;
+    if (window.lucide) lucide.createIcons();
 }
 
 function filtrarResultados(filtro, btn) {
@@ -1177,8 +1257,26 @@ async function identificarPastilla() {
                         ${p.color ? `<div class="pill-info-chip"><i data-lucide="palette" style="width:14px;height:14px;"></i> ${p.color}</div>` : ''}
                         ${p.grabado && p.grabado !== 'N/A' ? `<div class="pill-info-chip"><i data-lucide="type" style="width:14px;height:14px;"></i> ${p.grabado}</div>` : ''}
                         ${p.laboratorio && p.laboratorio !== 'Desconocido' ? `<div class="pill-info-chip"><i data-lucide="building-2" style="width:14px;height:14px;"></i> ${p.laboratorio}</div>` : ''}
+                        ${p.categoria ? `<div class="pill-info-chip"><i data-lucide="tag" style="width:14px;height:14px;"></i> ${p.categoria}</div>` : ''}
+                        ${p.requiere_receta ? `<div class="pill-info-chip" style="border-color:${p.requiere_receta.toLowerCase().includes('sí') || p.requiere_receta.toLowerCase().includes('retenida') ? '#ef4444' : '#10b981'};"><i data-lucide="file-text" style="width:14px;height:14px;"></i> Receta: ${p.requiere_receta}</div>` : ''}
                     </div>
+
+                    ${p.dosis_habitual ? `<div class="pill-info-block pill-dosis"><span class="pill-info-label"><i data-lucide="clock" style="width:14px;height:14px;"></i> Dosis habitual (adultos)</span><p>${p.dosis_habitual}</p></div>` : ''}
+
+                    ${(p.usos_comunes && p.usos_comunes.length) ? `<div class="pill-info-block"><span class="pill-info-label"><i data-lucide="check-circle" style="width:14px;height:14px;"></i> Usos comunes</span><ul class="pill-info-list">${p.usos_comunes.map(u => `<li>${u}</li>`).join('')}</ul></div>` : ''}
+
+                    ${(p.efectos_secundarios && p.efectos_secundarios.length) ? `<div class="pill-info-block"><span class="pill-info-label"><i data-lucide="activity" style="width:14px;height:14px;"></i> Efectos secundarios comunes</span><ul class="pill-info-list">${p.efectos_secundarios.map(e => `<li>${e}</li>`).join('')}</ul></div>` : ''}
+
+                    ${(p.contraindicaciones && p.contraindicaciones.length) ? `<div class="pill-info-block pill-contra"><span class="pill-info-label"><i data-lucide="x-circle" style="width:14px;height:14px;"></i> No usar si...</span><ul class="pill-info-list">${p.contraindicaciones.map(c => `<li>${c}</li>`).join('')}</ul></div>` : ''}
+
+                    ${(p.interacciones && p.interacciones.length) ? `<div class="pill-info-block"><span class="pill-info-label"><i data-lucide="alert-triangle" style="width:14px;height:14px;"></i> Interactúa con</span><ul class="pill-info-list">${p.interacciones.map(i => `<li>${i}</li>`).join('')}</ul></div>` : ''}
+
                     ${p.advertencia ? `<div class="pill-info-warning"><i data-lucide="alert-triangle" style="width:14px;height:14px;"></i> ${p.advertencia}</div>` : ''}
+
+                    <div class="pill-disclaimer">
+                        <i data-lucide="info" style="width:13px;height:13px;"></i>
+                        Esta información es orientativa y generada por IA. Consulta SIEMPRE a un médico o farmacéutico antes de tomar cualquier medicamento.
+                    </div>
                 </div>
 
                 ${p.buscar ? `
@@ -1222,10 +1320,11 @@ async function abrirAdmin(btn) {
 function adminTab(tab, btn) {
     document.querySelectorAll('.admin-tab').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    ['usuarios', 'historial', 'medicamentos'].forEach(t => {
+    ['usuarios', 'reportes', 'historial', 'medicamentos'].forEach(t => {
         document.getElementById('admin-panel-' + t).style.display = (t === tab) ? 'block' : 'none';
     });
     if (tab === 'usuarios') cargarUsuarios();
+    if (tab === 'reportes') cargarReportesAdmin();
     if (tab === 'historial') cargarHistorialAdmin();
     if (tab === 'medicamentos') cargarMedicamentosAdmin();
 }
@@ -1239,7 +1338,100 @@ async function cargarStats() {
         document.getElementById('stat-admins').textContent = s.admins;
         document.getElementById('stat-meds').textContent = s.medicamentos;
         document.getElementById('stat-busquedas').textContent = s.busquedas;
+        document.getElementById('stat-pendientes').textContent = s.reportes_pendientes || 0;
+        // Badge en la pestaña de reportes
+        const badge = document.getElementById('admin-reportes-badge');
+        if (s.reportes_pendientes > 0) {
+            badge.textContent = s.reportes_pendientes;
+            badge.style.display = 'inline-flex';
+        } else {
+            badge.style.display = 'none';
+        }
     } catch (e) { console.error(e); }
+}
+
+// ---- REPORTES COMUNITARIOS (ADMIN) ----
+let adminReportesFiltro = 'pendiente';
+
+async function cargarReportesAdmin() {
+    const cont = document.getElementById('admin-panel-reportes');
+    cont.innerHTML = '<p class="admin-loading">Cargando reportes...</p>';
+    try {
+        const r = await fetch(`${API}/admin/reportes?estado=${adminReportesFiltro}`, { headers: authHeaders() });
+        if (!r.ok) { cont.innerHTML = '<p class="admin-loading">Acceso denegado.</p>'; return; }
+        const reportes = await r.json();
+
+        let filtroBtns = `<div class="admin-rep-filters">
+            <button class="admin-rep-filter ${adminReportesFiltro === 'pendiente' ? 'active' : ''}" onclick="filtrarReportesAdmin('pendiente')">Pendientes</button>
+            <button class="admin-rep-filter ${adminReportesFiltro === 'aprobado' ? 'active' : ''}" onclick="filtrarReportesAdmin('aprobado')">Aprobados</button>
+            <button class="admin-rep-filter ${adminReportesFiltro === 'rechazado' ? 'active' : ''}" onclick="filtrarReportesAdmin('rechazado')">Rechazados</button>
+            <button class="admin-rep-filter ${adminReportesFiltro === 'todos' ? 'active' : ''}" onclick="filtrarReportesAdmin('todos')">Todos</button>
+        </div>`;
+
+        if (!reportes || reportes.length === 0) {
+            cont.innerHTML = filtroBtns + '<p class="admin-loading">No hay reportes en esta categoría.</p>';
+            return;
+        }
+
+        let html = filtroBtns + `<table class="admin-table">
+            <thead><tr><th>Usuario</th><th>Medicamento</th><th>Farmacia</th><th>Precio</th><th>Comuna</th><th>Estado</th><th style="text-align:right;">Acciones</th></tr></thead><tbody>`;
+        reportes.forEach(rep => {
+            const estadoBadge = {
+                pendiente: '<span class="badge" style="background:#fef3c7;color:#92400e;">Pendiente</span>',
+                aprobado: '<span class="badge badge-barato">Aprobado</span>',
+                rechazado: '<span class="badge" style="background:#fee2e2;color:#991b1b;">Rechazado</span>'
+            }[rep.estado] || rep.estado;
+
+            let acciones = '';
+            if (rep.estado === 'pendiente') {
+                acciones = `<button class="admin-btn-aprobar" onclick="aprobarReporte(${rep.id})">✓ Aprobar</button>
+                    <button class="admin-btn-rechazar" onclick="rechazarReporte(${rep.id})">✕ Rechazar</button>`;
+            } else {
+                acciones = '<span style="color:var(--text-muted);font-size:0.8rem;">—</span>';
+            }
+
+            html += `<tr>
+                <td>${rep.usuario || 'Anónimo'}</td>
+                <td><strong>${rep.medicamento}</strong></td>
+                <td>${rep.farmacia}</td>
+                <td style="font-weight:700;color:#10b981;">$${rep.precio.toLocaleString('es-CL')}</td>
+                <td>${rep.comuna || '—'}</td>
+                <td>${estadoBadge}</td>
+                <td style="text-align:right;white-space:nowrap;">${acciones}</td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        cont.innerHTML = html;
+    } catch (e) {
+        cont.innerHTML = '<p class="admin-loading">Error al cargar reportes.</p>';
+    }
+}
+
+function filtrarReportesAdmin(filtro) {
+    adminReportesFiltro = filtro;
+    cargarReportesAdmin();
+}
+
+async function aprobarReporte(id) {
+    try {
+        await fetch(`${API}/admin/reportes/${id}/aprobar`, { method: 'POST', headers: authHeaders() });
+        cargarReportesAdmin();
+        cargarStats();
+    } catch {}
+}
+
+async function rechazarReporte(id) {
+    const motivo = prompt('Motivo del rechazo (se le mostrará al usuario):', 'El precio no parece realista.');
+    if (motivo === null) return;
+    try {
+        await fetch(`${API}/admin/reportes/${id}/rechazar`, {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({ motivo })
+        });
+        cargarReportesAdmin();
+        cargarStats();
+    } catch {}
 }
 
 // ---- USUARIOS ----
@@ -1811,6 +2003,19 @@ function mostrarOptimizacion(resultadosPorMed) {
             <i data-lucide="trending-down" style="width:20px;height:20px;"></i>
             <span>Ahorras <strong>$${ahorro.toLocaleString('es-CL')} CLP</strong> comprando en la combinación óptima vs todo en ${mejorFarmaciaUnica[0]}.</span>
         </div>`;
+
+        // Registrar este ahorro REAL de receta en el perfil del usuario
+        if (getToken() && mejorFarmaciaUnica) {
+            fetch(`${API}/registrar_ahorro_receta`, {
+                method: 'POST',
+                headers: authHeaders(),
+                body: JSON.stringify({
+                    medicamento: 'Receta médica',
+                    precio_caro: mejorFarmaciaUnica[1],
+                    precio_barato: totalOptimo
+                })
+            }).then(() => actualizarAhorroSidebar()).catch(() => {});
+        }
     }
 
     html += `</div>
@@ -1919,6 +2124,7 @@ const TRADUCCIONES = {
         'nav_inicio': 'Inicio', 'nav_mathew': 'Mathew IA', 'nav_comparador': 'Comparador',
         'nav_identificador': 'Identificador', 'nav_optimizador': 'Optimizador',
         'nav_historial': 'Historial', 'nav_mapa': 'Mapa Salud', 'nav_admin': 'Administración',
+        'nav_interacciones': 'Interacciones', 'nav_turno': 'Farmacias de Turno',
         'hero_badge': 'Plataforma de Salud Inteligente',
         'hero_title': 'Bienvenido a',
         'hero_desc': 'Compara precios de medicamentos en tiempo real, identifica pastillas con inteligencia artificial, y consulta con nuestro asistente clínico Mathew.',
@@ -1948,6 +2154,7 @@ const TRADUCCIONES = {
         'nav_inicio': 'Home', 'nav_mathew': 'Mathew AI', 'nav_comparador': 'Comparator',
         'nav_identificador': 'Pill ID', 'nav_optimizador': 'Optimizer',
         'nav_historial': 'History', 'nav_mapa': 'Health Map', 'nav_admin': 'Admin',
+        'nav_interacciones': 'Interactions', 'nav_turno': 'Pharmacies on Duty',
         'hero_badge': 'Smart Health Platform',
         'hero_title': 'Welcome to',
         'hero_desc': 'Compare drug prices in real time, identify pills with artificial intelligence, and consult with our clinical assistant Mathew.',
@@ -2055,3 +2262,552 @@ function renderSkeletonTabla() {
             </table>
         </div>`;
 }
+
+// =========================================================
+// PRECIOS COMUNITARIOS (tipo Waze)
+// =========================================================
+
+function abrirModalReporte() {
+    if (!getToken()) { pedirLogin(); return; }
+    // Pre-llenar con el término buscado
+    const q = document.getElementById('manual-search').value.trim();
+    if (q) document.getElementById('reporte-med').value = q;
+    document.getElementById('reporte-modal').style.display = 'flex';
+    lucide.createIcons();
+}
+
+function cerrarModalReporte() {
+    document.getElementById('reporte-modal').style.display = 'none';
+}
+
+async function enviarReporte() {
+    const medicamento = document.getElementById('reporte-med').value.trim();
+    const farmacia = document.getElementById('reporte-farmacia').value;
+    const precio = document.getElementById('reporte-precio').value;
+    const comuna = document.getElementById('reporte-comuna').value.trim();
+
+    if (!medicamento || !farmacia || !precio) {
+        alert('Completa medicamento, farmacia y precio.');
+        return;
+    }
+
+    try {
+        const r = await fetch(`${API}/comunidad/reportar`, {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({ medicamento, farmacia, precio, comuna })
+        });
+        const data = await r.json();
+        if (data.error) { alert(data.error); return; }
+        cerrarModalReporte();
+        // Limpiar campos
+        ['reporte-med', 'reporte-precio', 'reporte-comuna'].forEach(id => document.getElementById(id).value = '');
+        document.getElementById('reporte-farmacia').value = '';
+        // Recargar precios comunitarios si coincide con la búsqueda actual
+        const q = document.getElementById('manual-search').value.trim();
+        if (q) cargarPreciosComunidad(q);
+        alert(data.mensaje);
+    } catch {
+        alert('Error al enviar el reporte.');
+    }
+}
+
+async function cargarPreciosComunidad(medicamento) {
+    const cont = document.getElementById('comunidad-precios');
+    if (!medicamento) { cont.style.display = 'none'; return; }
+
+    try {
+        const r = await fetch(`${API}/comunidad/precios?medicamento=${encodeURIComponent(medicamento)}`);
+        const reportes = await r.json();
+
+        if (!reportes || reportes.length === 0) {
+            cont.style.display = 'none';
+            return;
+        }
+
+        let html = `<div class="comunidad-card">
+            <div class="comunidad-header">
+                <div>
+                    <h3><i data-lucide="users" style="width:18px;height:18px;vertical-align:middle;"></i> Precios reportados por la comunidad</h3>
+                    <p>Precios vistos en farmacias físicas por otros usuarios.</p>
+                </div>
+                <span class="comunidad-badge">${reportes.length} reporte${reportes.length !== 1 ? 's' : ''}</span>
+            </div>
+            <div class="comunidad-list">`;
+
+        reportes.forEach(rep => {
+            const fecha = rep.fecha ? rep.fecha.substring(0, 10) : '';
+            html += `<div class="comunidad-item">
+                <div class="comunidad-item-main">
+                    <span class="comunidad-precio">$${rep.precio.toLocaleString('es-CL')}</span>
+                    <div class="comunidad-info">
+                        <span class="comunidad-farmacia">${rep.farmacia}</span>
+                        ${rep.comuna ? `<span class="comunidad-comuna"><i data-lucide="map-pin" style="width:11px;height:11px;"></i> ${rep.comuna}</span>` : ''}
+                    </div>
+                </div>
+                <div class="comunidad-item-meta">
+                    <span class="comunidad-usuario">por ${rep.usuario || 'Anónimo'} · ${fecha}</span>
+                    <button class="comunidad-voto" onclick="votarPrecio(${rep.id}, this)">
+                        <i data-lucide="thumbs-up" style="width:13px;height:13px;"></i> <span>${rep.votos}</span>
+                    </button>
+                </div>
+            </div>`;
+        });
+
+        html += `</div></div>`;
+        cont.innerHTML = html;
+        cont.style.display = 'block';
+        lucide.createIcons();
+    } catch (e) {
+        console.error("Error cargando precios comunidad:", e);
+        cont.style.display = 'none';
+    }
+}
+
+async function votarPrecio(id, btn) {
+    try {
+        await fetch(`${API}/comunidad/votar/${id}`, { method: 'POST', headers: authHeaders() });
+        // Incrementar el contador visualmente
+        const span = btn.querySelector('span');
+        span.textContent = parseInt(span.textContent) + 1;
+        btn.classList.add('voted');
+        btn.disabled = true;
+    } catch { }
+}
+
+// =========================================================
+// ÍNDICE DE AHORRO PERSONAL + NIVEL DE REPORTERO
+// =========================================================
+
+async function actualizarAhorroSidebar() {
+    if (!getToken()) return;
+    try {
+        const r = await fetch(`${API}/perfil/stats`, { headers: authHeaders() });
+        if (!r.ok) return;
+        const stats = await r.json();
+        const el = document.getElementById('sidebar-savings');
+        if (el && stats.ahorro_total > 0) {
+            el.innerHTML = `💰 Ahorrado: $${stats.ahorro_total.toLocaleString('es-CL')}`;
+        }
+    } catch {}
+}
+
+async function abrirPerfil() {
+    if (!getToken()) { pedirLogin(); return; }
+    document.getElementById('perfil-modal').style.display = 'flex';
+    const cont = document.getElementById('perfil-content');
+    cont.innerHTML = '<p style="color:var(--text-muted);padding:20px;text-align:center;">Cargando...</p>';
+
+    try {
+        const r = await fetch(`${API}/perfil/stats`, { headers: authHeaders() });
+        const s = await r.json();
+        const nivel = s.nivel;
+
+        // Barra de progreso al siguiente nivel
+        let progresoHtml = '';
+        if (nivel.siguiente) {
+            progresoHtml = `<div class="perfil-progress">
+                <div class="perfil-progress-text">
+                    <span>Faltan <strong>${nivel.faltan}</strong> reportes para ${nivel.siguiente}</span>
+                </div>
+                <div class="perfil-progress-bar">
+                    <div class="perfil-progress-fill" style="width:${Math.min(100, (s.num_reportes / (s.num_reportes + nivel.faltan)) * 100)}%;background:${nivel.color};"></div>
+                </div>
+            </div>`;
+        } else {
+            progresoHtml = `<div class="perfil-progress-text" style="text-align:center;color:#f59e0b;font-weight:700;">¡Nivel máximo alcanzado! 🏆</div>`;
+        }
+
+        cont.innerHTML = `
+            <div class="perfil-hero">
+                <div class="perfil-ahorro-big">
+                    <span class="perfil-ahorro-label">Has ahorrado en total</span>
+                    <span class="perfil-ahorro-monto">$${s.ahorro_total.toLocaleString('es-CL')}</span>
+                    <span class="perfil-ahorro-sub">comparando precios con FarmaConnect</span>
+                </div>
+            </div>
+
+            <div class="perfil-stats-row">
+                <div class="perfil-stat">
+                    <span class="perfil-stat-num">${s.num_comparaciones}</span>
+                    <span class="perfil-stat-lbl">Comparaciones</span>
+                </div>
+                <div class="perfil-stat">
+                    <span class="perfil-stat-num">${s.num_reportes}</span>
+                    <span class="perfil-stat-lbl">Reportes</span>
+                </div>
+                <div class="perfil-stat">
+                    <span class="perfil-stat-num">${s.total_votos}</span>
+                    <span class="perfil-stat-lbl">Votos recibidos</span>
+                </div>
+            </div>
+
+            <div class="perfil-nivel-card" style="border-color:${nivel.color};">
+                <div class="perfil-nivel-icono">${nivel.icono}</div>
+                <div class="perfil-nivel-info">
+                    <span class="perfil-nivel-label">Nivel de Reportero</span>
+                    <span class="perfil-nivel-nombre" style="color:${nivel.color};">${nivel.nivel}</span>
+                </div>
+            </div>
+            ${progresoHtml}
+
+            ${s.mejor_ahorro ? `<div class="perfil-mejor">
+                <i data-lucide="trophy" style="width:16px;height:16px;color:#f59e0b;"></i>
+                Tu mejor ahorro: <strong>$${s.mejor_ahorro.monto.toLocaleString('es-CL')}</strong> en ${s.mejor_ahorro.medicamento}
+            </div>` : ''}
+
+            <div id="perfil-reportes" style="margin-top:18px;"></div>
+        `;
+        lucide.createIcons();
+        cargarMisReportes();
+    } catch {
+        cont.innerHTML = '<p style="color:#ef4444;padding:20px;">Error al cargar el perfil.</p>';
+    }
+}
+
+// =========================================================
+// DETECTOR DE INTERACCIONES
+// =========================================================
+let interMeds = [];
+
+function agregarMedInteraccion() {
+    const input = document.getElementById('inter-med-input');
+    const val = input.value.trim();
+    if (!val) return;
+    if (!interMeds.includes(val.toLowerCase())) {
+        interMeds.push(val);
+        renderInterChips();
+    }
+    input.value = '';
+    input.focus();
+}
+
+function renderInterChips() {
+    const cont = document.getElementById('inter-chips');
+    cont.innerHTML = interMeds.map((m, i) =>
+        `<div class="inter-chip">${m}<button onclick="quitarMedInteraccion(${i})">✕</button></div>`
+    ).join('');
+    document.getElementById('inter-analyze-btn').disabled = interMeds.length < 2;
+}
+
+function quitarMedInteraccion(i) {
+    interMeds.splice(i, 1);
+    renderInterChips();
+}
+
+async function analizarInteracciones() {
+    if (interMeds.length < 2) return;
+    const btn = document.getElementById('inter-analyze-btn');
+    const resultDiv = document.getElementById('inter-result');
+    btn.disabled = true;
+    btn.innerHTML = '<div class="auth-spinner"></div> Analizando...';
+    resultDiv.style.display = 'block';
+    resultDiv.innerHTML = '<p style="color:var(--text-muted);padding:16px;text-align:center;">La IA está analizando las interacciones...</p>';
+
+    try {
+        const r = await fetch(`${API}/interacciones`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ medicamentos: interMeds })
+        });
+        const data = await r.json();
+        if (data.error) {
+            resultDiv.innerHTML = `<div class="pill-error">${data.error}</div>`;
+            return;
+        }
+
+        const riesgoColor = { alto: '#ef4444', medio: '#f59e0b', bajo: '#eab308', ninguno: '#10b981' }[data.riesgo_general] || '#64748b';
+
+        let html = `<div class="inter-result-card">
+            <div class="inter-riesgo-header" style="border-color:${riesgoColor};">
+                <div class="inter-riesgo-badge" style="background:${riesgoColor}20;color:${riesgoColor};">
+                    Riesgo general: ${(data.riesgo_general || 'desconocido').toUpperCase()}
+                </div>
+                <p>${data.resumen || ''}</p>
+            </div>`;
+
+        if (data.interacciones && data.interacciones.length > 0) {
+            html += '<div class="inter-list">';
+            data.interacciones.forEach(inter => {
+                const sevColor = { alta: '#ef4444', media: '#f59e0b', baja: '#eab308' }[inter.severidad] || '#64748b';
+                html += `<div class="inter-item" style="border-left-color:${sevColor};">
+                    <div class="inter-item-head">
+                        <span class="inter-par">${inter.par}</span>
+                        <span class="inter-sev" style="background:${sevColor}20;color:${sevColor};">${inter.severidad}</span>
+                    </div>
+                    <p class="inter-desc">${inter.descripcion}</p>
+                    <p class="inter-reco"><strong>Recomendación:</strong> ${inter.recomendacion}</p>
+                </div>`;
+            });
+            html += '</div>';
+        } else {
+            html += '<div class="inter-safe">✓ No se detectaron interacciones peligrosas conocidas entre estos medicamentos.</div>';
+        }
+
+        html += '</div>';
+        resultDiv.innerHTML = html;
+        lucide.createIcons();
+    } catch {
+        resultDiv.innerHTML = '<div class="pill-error">Error al analizar.</div>';
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i data-lucide="alert-triangle"></i> Analizar interacciones';
+        lucide.createIcons();
+    }
+}
+
+// =========================================================
+// FARMACIAS DE TURNO
+// =========================================================
+async function buscarFarmaciasTurno() {
+    const comuna = document.getElementById('turno-comuna').value.trim();
+    const resultDiv = document.getElementById('turno-result');
+    resultDiv.innerHTML = '<p style="color:var(--text-muted);padding:16px;text-align:center;">Buscando farmacias de turno...</p>';
+
+    try {
+        const r = await fetch(`${API}/farmacias_turno?comuna=${encodeURIComponent(comuna)}`);
+        const farmacias = await r.json();
+
+        if (farmacias.error || !farmacias || farmacias.length === 0) {
+            resultDiv.innerHTML = `<div class="turno-empty">
+                <i data-lucide="clock" style="width:32px;height:32px;opacity:0.3;"></i>
+                <p>No se encontraron farmacias de turno${comuna ? ' en ' + comuna : ''}. Intenta con otra comuna.</p>
+            </div>`;
+            lucide.createIcons();
+            return;
+        }
+
+        let html = `<div class="turno-count">${farmacias.length} farmacia${farmacias.length !== 1 ? 's' : ''} de turno encontrada${farmacias.length !== 1 ? 's' : ''}</div><div class="turno-list">`;
+        farmacias.forEach(f => {
+            html += `<div class="turno-item">
+                <div class="turno-item-icon"><i data-lucide="cross" style="width:18px;height:18px;"></i></div>
+                <div class="turno-item-info">
+                    <span class="turno-nombre">${f.nombre}</span>
+                    <span class="turno-dir"><i data-lucide="map-pin" style="width:12px;height:12px;"></i> ${f.direccion}, ${f.comuna}</span>
+                    ${f.horario ? `<span class="turno-horario"><i data-lucide="clock" style="width:12px;height:12px;"></i> ${f.horario}</span>` : ''}
+                </div>
+                ${f.lat && f.lng ? `<a href="https://www.google.com/maps?q=${f.lat},${f.lng}" target="_blank" class="turno-maps-btn"><i data-lucide="navigation" style="width:14px;height:14px;"></i> Ir</a>` : ''}
+            </div>`;
+        });
+        html += '</div>';
+        resultDiv.innerHTML = html;
+        lucide.createIcons();
+    } catch {
+        resultDiv.innerHTML = '<div class="pill-error">Error al obtener farmacias de turno.</div>';
+    }
+}
+
+// =========================================================
+// CALCULADORA DE TRATAMIENTO
+// =========================================================
+function calcularTratamiento() {
+    const tomas = parseInt(document.getElementById('calc-tomas').value) || 0;
+    const dias = parseInt(document.getElementById('calc-dias').value) || 0;
+    const unidades = parseInt(document.getElementById('calc-unidades').value) || 1;
+    const resDiv = document.getElementById('calc-resultado');
+
+    if (tomas <= 0 || dias <= 0 || unidades <= 0) {
+        resDiv.innerHTML = '';
+        return;
+    }
+
+    const totalUnidades = tomas * dias;
+    const cajasNecesarias = Math.ceil(totalUnidades / unidades);
+
+    // Precio más barato de los resultados actuales
+    let precioMin = Infinity, farmaciaMin = '';
+    todosResultados.forEach(p => {
+        const val = parseInt(String(p.precio).replace(/\D/g, ''), 10);
+        if (val && val < precioMin) { precioMin = val; farmaciaMin = p.farmacia; }
+    });
+
+    let costoHtml = '';
+    if (precioMin !== Infinity) {
+        const costoTotal = precioMin * cajasNecesarias;
+        costoHtml = `<div class="calc-costo">
+            <span>Costo total del tratamiento:</span>
+            <strong>$${costoTotal.toLocaleString('es-CL')} CLP</strong>
+            <small>(${cajasNecesarias} caja${cajasNecesarias !== 1 ? 's' : ''} × $${precioMin.toLocaleString('es-CL')} en ${farmaciaMin})</small>
+        </div>`;
+    }
+
+    resDiv.innerHTML = `
+        <div class="calc-result-grid">
+            <div class="calc-result-item">
+                <span class="calc-result-num">${totalUnidades}</span>
+                <span class="calc-result-lbl">unidades totales</span>
+            </div>
+            <div class="calc-result-item highlight">
+                <span class="calc-result-num">${cajasNecesarias}</span>
+                <span class="calc-result-lbl">caja${cajasNecesarias !== 1 ? 's' : ''} a comprar</span>
+            </div>
+        </div>
+        ${costoHtml}`;
+}
+
+// =========================================================
+// MODO ADULTO MAYOR
+// =========================================================
+function toggleModoSenior(enabled) {
+    document.body.classList.toggle('senior-mode', enabled);
+    localStorage.setItem('fc_senior', enabled ? 'on' : 'off');
+    document.getElementById('settings-senior-text').textContent = enabled ? 'Activado' : 'Desactivado';
+}
+
+// Aplicar modo senior guardado al cargar
+document.addEventListener('DOMContentLoaded', () => {
+    if (localStorage.getItem('fc_senior') === 'on') {
+        document.body.classList.add('senior-mode');
+        const toggle = document.getElementById('settings-senior-toggle');
+        if (toggle) {
+            toggle.checked = true;
+            document.getElementById('settings-senior-text').textContent = 'Activado';
+        }
+    }
+});
+
+// Agregar mapping de las nuevas secciones a la navegación
+const _origSectionMap = { 'interacciones': 'Interacciones', 'turno': 'Turno' };
+
+async function cargarMisReportes() {
+    const cont = document.getElementById('perfil-reportes');
+    if (!cont) return;
+    try {
+        const r = await fetch(`${API}/comunidad/mis_reportes`, { headers: authHeaders() });
+        const reportes = await r.json();
+        if (!reportes || reportes.length === 0) return;
+
+        let html = '<h4 style="font-size:0.95rem;font-weight:700;margin-bottom:10px;">Mis reportes</h4><div class="mis-reportes-list">';
+        reportes.forEach(rep => {
+            const estadoInfo = {
+                pendiente: { label: 'En revisión', color: '#f59e0b', icon: '⏳' },
+                aprobado: { label: 'Aprobado', color: '#10b981', icon: '✓' },
+                rechazado: { label: 'Rechazado', color: '#ef4444', icon: '✕' }
+            }[rep.estado] || { label: rep.estado, color: '#64748b', icon: '•' };
+
+            html += `<div class="mi-reporte-item">
+                <div class="mi-reporte-main">
+                    <span class="mi-reporte-med">${rep.medicamento}</span>
+                    <span class="mi-reporte-detalle">${rep.farmacia} · $${rep.precio.toLocaleString('es-CL')}</span>
+                </div>
+                <div class="mi-reporte-estado">
+                    <span style="color:${estadoInfo.color};font-weight:700;font-size:0.82rem;">${estadoInfo.icon} ${estadoInfo.label}</span>
+                    ${rep.estado === 'rechazado' && rep.motivo_rechazo ? `<span class="mi-reporte-motivo">${rep.motivo_rechazo}</span>` : ''}
+                </div>
+            </div>`;
+        });
+        html += '</div>';
+        cont.innerHTML = html;
+    } catch {}
+}
+
+// =========================================================
+// COMUNAS DE CHILE
+// =========================================================
+const COMUNAS_CHILE = [
+    "Arica","Iquique","Alto Hospicio","Antofagasta","Calama","Tocopilla","Copiapó","Vallenar",
+    "La Serena","Coquimbo","Ovalle","Valparaíso","Viña del Mar","Quilpué","Villa Alemana","San Antonio","Quillota","Los Andes","San Felipe",
+    "Santiago","Cerrillos","Cerro Navia","Conchalí","El Bosque","Estación Central","Huechuraba","Independencia","La Cisterna","La Florida","La Granja","La Pintana","La Reina","Las Condes","Lo Barnechea","Lo Espejo","Lo Prado","Macul","Maipú","Ñuñoa","Pedro Aguirre Cerda","Peñalolén","Providencia","Pudahuel","Quilicura","Quinta Normal","Recoleta","Renca","San Joaquín","San Miguel","San Ramón","Vitacura","Puente Alto","San Bernardo","Buin","Colina","Melipilla","Talagante","Peñaflor",
+    "Rancagua","Machalí","San Fernando","Rengo","Curicó","Talca","Linares","Molina","Constitución","Cauquenes",
+    "Chillán","Concepción","Talcahuano","Hualpén","San Pedro de la Paz","Chiguayante","Coronel","Lota","Los Ángeles","Cañete",
+    "Temuco","Padre Las Casas","Villarrica","Pucón","Angol","Victoria",
+    "Valdivia","La Unión","Osorno","Puerto Montt","Puerto Varas","Castro","Ancud","Quellón",
+    "Coyhaique","Puerto Aysén","Punta Arenas","Puerto Natales"
+].sort();
+
+function llenarComunas(selectId) {
+    const sel = document.getElementById(selectId);
+    if (!sel) return;
+    // Mantener la primera opción (placeholder)
+    const placeholder = sel.querySelector('option');
+    sel.innerHTML = '';
+    if (placeholder) sel.appendChild(placeholder);
+    COMUNAS_CHILE.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c;
+        opt.textContent = c;
+        sel.appendChild(opt);
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    llenarComunas('reporte-comuna');
+    llenarComunas('turno-comuna');
+});
+
+// =========================================================
+// FUERZA DE CONTRASEÑA
+// =========================================================
+function evaluarPassword(pw) {
+    const cont = document.getElementById('pw-strength');
+    if (!pw) { cont.classList.remove('visible'); return; }
+    cont.classList.add('visible');
+
+    let fuerza = 0;
+    if (pw.length >= 8) fuerza++;
+    if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) fuerza++;
+    if (/\d/.test(pw)) fuerza++;
+    if (/[^A-Za-z0-9]/.test(pw)) fuerza++;
+
+    const colores = ['#ef4444', '#f59e0b', '#eab308', '#10b981'];
+    const labels = ['Débil', 'Regular', 'Buena', 'Fuerte'];
+    const color = colores[Math.max(0, fuerza - 1)];
+
+    for (let i = 1; i <= 4; i++) {
+        const bar = document.getElementById('pw-bar-' + i);
+        bar.style.background = i <= fuerza ? color : 'var(--border)';
+    }
+    const label = document.getElementById('pw-strength-label');
+    label.textContent = fuerza > 0 ? labels[fuerza - 1] : '';
+    label.style.color = color;
+}
+
+// =========================================================
+// CARRUSEL DE FARMACIAS EN LOGIN
+// =========================================================
+let authSlideIndex = 0;
+let authCarouselTimer = null;
+
+function initAuthCarousel() {
+    const slides = document.querySelectorAll('.auth-slide');
+    const dotsCont = document.getElementById('auth-carousel-dots');
+    if (!slides.length || !dotsCont) return;
+
+    // Crear dots
+    dotsCont.innerHTML = '';
+    slides.forEach((_, i) => {
+        const dot = document.createElement('button');
+        dot.className = 'auth-carousel-dot' + (i === 0 ? ' active' : '');
+        dot.onclick = () => irAuthSlide(i);
+        dotsCont.appendChild(dot);
+    });
+
+    // Auto-rotación cada 3 segundos
+    if (authCarouselTimer) clearInterval(authCarouselTimer);
+    authCarouselTimer = setInterval(() => {
+        authSlideIndex = (authSlideIndex + 1) % slides.length;
+        renderAuthSlide();
+    }, 3000);
+}
+
+function irAuthSlide(i) {
+    authSlideIndex = i;
+    renderAuthSlide();
+    if (authCarouselTimer) clearInterval(authCarouselTimer);
+    authCarouselTimer = setInterval(() => {
+        const slides = document.querySelectorAll('.auth-slide');
+        authSlideIndex = (authSlideIndex + 1) % slides.length;
+        renderAuthSlide();
+    }, 3000);
+}
+
+function renderAuthSlide() {
+    const slides = document.querySelectorAll('.auth-slide');
+    const dots = document.querySelectorAll('.auth-carousel-dot');
+    slides.forEach((s, i) => s.classList.toggle('active', i === authSlideIndex));
+    dots.forEach((d, i) => d.classList.toggle('active', i === authSlideIndex));
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(initAuthCarousel, 100);
+});
