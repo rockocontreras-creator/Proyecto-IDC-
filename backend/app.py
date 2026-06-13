@@ -148,6 +148,42 @@ def init_db():
                         fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
                         FOREIGN KEY(id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE)''')
 
+    # 7. Tabla de precios comunitarios (reportados por usuarios, tipo Waze)
+    cursor.execute('''CREATE TABLE IF NOT EXISTS precios_comunidad (
+                        id_reporte INTEGER PRIMARY KEY AUTOINCREMENT,
+                        id_usuario INTEGER NOT NULL,
+                        nombre_usuario TEXT,
+                        medicamento TEXT NOT NULL,
+                        farmacia TEXT NOT NULL,
+                        precio INTEGER NOT NULL,
+                        comuna TEXT,
+                        votos INTEGER DEFAULT 0,
+                        estado TEXT DEFAULT 'pendiente',
+                        motivo_rechazo TEXT,
+                        fecha_reporte DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY(id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE)''')
+
+    # Migración: agregar columnas si la tabla ya existía sin ellas
+    try:
+        cursor.execute("ALTER TABLE precios_comunidad ADD COLUMN estado TEXT DEFAULT 'pendiente'")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE precios_comunidad ADD COLUMN motivo_rechazo TEXT")
+    except Exception:
+        pass
+
+    # 8. Tabla de ahorros (índice de ahorro personal)
+    cursor.execute('''CREATE TABLE IF NOT EXISTS ahorros (
+                        id_ahorro INTEGER PRIMARY KEY AUTOINCREMENT,
+                        id_usuario INTEGER NOT NULL,
+                        medicamento TEXT NOT NULL,
+                        precio_caro INTEGER NOT NULL,
+                        precio_barato INTEGER NOT NULL,
+                        ahorro INTEGER NOT NULL,
+                        fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY(id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE)''')
+
     conn.commit()
     conn.close()
 
@@ -166,8 +202,8 @@ def registro():
 
     if not nombre or not correo or not password:
         return jsonify({"error": "Todos los campos son obligatorios."}), 400
-    if len(password) < 6:
-        return jsonify({"error": "La contraseña debe tener al menos 6 caracteres."}), 400
+    if len(password) < 8:
+        return jsonify({"error": "La contraseña debe tener al menos 8 caracteres."}), 400
     if '@' not in correo or '.' not in correo:
         return jsonify({"error": "Correo electrónico inválido."}), 400
 
@@ -245,13 +281,65 @@ def admin_stats():
     c.execute("SELECT COUNT(*) FROM usuarios WHERE es_admin = 1"); total_admins = c.fetchone()[0]
     c.execute("SELECT COUNT(*) FROM medicamentos");  total_meds = c.fetchone()[0]
     c.execute("SELECT COUNT(*) FROM historial");     total_hist = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM precios_comunidad WHERE estado = 'pendiente'"); pendientes = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM precios_comunidad"); total_reportes = c.fetchone()[0]
     conn.close()
     return jsonify({
         "usuarios": total_usuarios,
         "admins": total_admins,
         "medicamentos": total_meds,
-        "busquedas": total_hist
+        "busquedas": total_hist,
+        "reportes_pendientes": pendientes,
+        "reportes_total": total_reportes
     })
+
+
+@app.route('/admin/reportes', methods=['GET'])
+def admin_listar_reportes():
+    if not resolver_admin():
+        return jsonify({"error": "Acceso denegado."}), 403
+    filtro = request.args.get('estado', 'pendiente')
+    conn = sqlite3.connect('farmacia.db')
+    c = conn.cursor()
+    if filtro == 'todos':
+        c.execute('''SELECT id_reporte, nombre_usuario, medicamento, farmacia, precio, comuna, estado, fecha_reporte
+                     FROM precios_comunidad ORDER BY fecha_reporte DESC LIMIT 100''')
+    else:
+        c.execute('''SELECT id_reporte, nombre_usuario, medicamento, farmacia, precio, comuna, estado, fecha_reporte
+                     FROM precios_comunidad WHERE estado = ? ORDER BY fecha_reporte DESC LIMIT 100''', (filtro,))
+    reportes = []
+    for row in c.fetchall():
+        reportes.append({
+            "id": row[0], "usuario": row[1], "medicamento": row[2], "farmacia": row[3],
+            "precio": row[4], "comuna": row[5], "estado": row[6], "fecha": row[7]
+        })
+    conn.close()
+    return jsonify(reportes)
+
+
+@app.route('/admin/reportes/<int:rid>/aprobar', methods=['POST'])
+def admin_aprobar_reporte(rid):
+    if not resolver_admin():
+        return jsonify({"error": "Acceso denegado."}), 403
+    conn = sqlite3.connect('farmacia.db')
+    c = conn.cursor()
+    c.execute("UPDATE precios_comunidad SET estado = 'aprobado', motivo_rechazo = NULL WHERE id_reporte = ?", (rid,))
+    conn.commit()
+    conn.close()
+    return jsonify({"mensaje": "Reporte aprobado."})
+
+
+@app.route('/admin/reportes/<int:rid>/rechazar', methods=['POST'])
+def admin_rechazar_reporte(rid):
+    if not resolver_admin():
+        return jsonify({"error": "Acceso denegado."}), 403
+    motivo = (request.json.get('motivo') or 'No cumple con los criterios de calidad.').strip()
+    conn = sqlite3.connect('farmacia.db')
+    c = conn.cursor()
+    c.execute("UPDATE precios_comunidad SET estado = 'rechazado', motivo_rechazo = ? WHERE id_reporte = ?", (motivo, rid))
+    conn.commit()
+    conn.close()
+    return jsonify({"mensaje": "Reporte rechazado."})
 
 
 @app.route('/admin/usuarios', methods=['GET'])
@@ -409,17 +497,25 @@ def identificar_pastilla():
         '{\n'
         '  "nombre": "Nombre comercial más probable del medicamento",\n'
         '  "principio_activo": "Principio activo / molécula",\n'
-        '  "descripcion": "Breve descripción de para qué se usa (2-3 líneas)",\n'
+        '  "descripcion": "Descripción de qué es y para qué se usa (2-3 líneas)",\n'
         '  "forma": "Comprimido / Cápsula / Tableta / Gragea / etc",\n'
         '  "color": "Color observado",\n'
         '  "grabado": "Texto o marcas visibles en la pastilla (o N/A)",\n'
         '  "laboratorio": "Laboratorio fabricante probable (o Desconocido)",\n'
         '  "confianza": "alta / media / baja",\n'
         '  "buscar": "Término óptimo para buscar este medicamento en farmacias chilenas (ej: paracetamol 500mg)",\n'
-        '  "advertencia": "Alguna precaución importante (interacciones, contraindicaciones comunes)"\n'
+        '  "usos_comunes": ["Lista de 3-5 usos o indicaciones principales"],\n'
+        '  "dosis_habitual": "Dosis típica para adultos (orientativa, ej: 1 comprimido cada 8 horas)",\n'
+        '  "efectos_secundarios": ["Lista de 3-5 efectos secundarios comunes"],\n'
+        '  "contraindicaciones": ["Lista de 2-4 situaciones donde NO debe usarse"],\n'
+        '  "interacciones": ["Lista de 2-4 medicamentos o sustancias con las que interactúa"],\n'
+        '  "advertencia": "Precaución más importante a tener en cuenta",\n'
+        '  "requiere_receta": "Sí / No / Receta retenida",\n'
+        '  "categoria": "Categoría terapéutica (ej: Analgésico, Antibiótico, Antiinflamatorio)"\n'
         '}\n\n'
+        "Sé preciso y prudente con la información médica. Basa las dosis e indicaciones en información farmacológica estándar. "
         "Si NO puedes identificar el medicamento con certeza, responde igualmente con el JSON "
-        "poniendo confianza 'baja' y en nombre pon tu mejor estimación o 'No identificado'. "
+        "poniendo confianza 'baja' y en nombre pon tu mejor estimación o 'No identificado', dejando las listas vacías. "
         "NUNCA respondas fuera del formato JSON."
     )
 
@@ -546,25 +642,47 @@ def guardar_busqueda(remedio, resultados, user_id=None):
     conn.close()
 
 
+_DRIVER_PATH = None  # cache del path del chromedriver para no reinstalar cada vez
+
 def get_driver():
+    global _DRIVER_PATH
     opts = Options()
     if HEADLESS:
-        opts.add_argument("--headless")           # headless clásico (el que funcionaba con 3 farmacias)
+        opts.add_argument("--headless=new")
     opts.add_argument("--disable-gpu")
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
     opts.add_argument("--disable-extensions")
+    opts.add_argument("--disable-plugins")
+    opts.add_argument("--disable-images")
     opts.add_argument("--blink-settings=imagesEnabled=false")
     opts.add_argument("--window-size=1280,800")
-    # Anti-detección (no interfiere con la carga; solo ayuda con anti-bots)
     opts.add_argument("--disable-blink-features=AutomationControlled")
-    opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-    prefs = {"profile.managed_default_content_settings.images": 2}
+    opts.add_argument("--disable-background-networking")
+    opts.add_argument("--disable-sync")
+    opts.add_argument("--disable-translate")
+    opts.add_argument("--mute-audio")
+    opts.add_argument("--no-first-run")
+    opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    # Bloquear imágenes, fuentes y CSS para cargar mucho más rápido
+    prefs = {
+        "profile.managed_default_content_settings.images": 2,
+        "profile.managed_default_content_settings.fonts": 2,
+        "profile.managed_default_content_settings.plugins": 2,
+        "profile.managed_default_content_settings.popups": 2,
+        "profile.managed_default_content_settings.notifications": 2,
+    }
     opts.add_experimental_option("prefs", prefs)
     opts.add_experimental_option("excludeSwitches", ["enable-automation"])
-    service = Service(ChromeDriverManager().install(), log_output=os.devnull)
+    # 'eager' = no esperar a que cargue TODO (imágenes, subrecursos), solo el DOM
+    opts.page_load_strategy = 'eager'
+
+    # Cachear el path del chromedriver (instalar solo la primera vez)
+    if _DRIVER_PATH is None:
+        _DRIVER_PATH = ChromeDriverManager().install()
+    service = Service(_DRIVER_PATH, log_output=os.devnull)
     driver = webdriver.Chrome(service=service, options=opts)
-    driver.set_page_load_timeout(20)   # restaurado al valor original (20s)
+    driver.set_page_load_timeout(15)
     try:
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
             "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
@@ -575,8 +693,8 @@ def get_driver():
 
 
 def scrape_task(func, remedio, res_list):
-    """Ejecuta el scraper de una farmacia. Si no devuelve nada, reintenta UNA vez
-       (las SPAs anti-bot a veces fallan la primera carga y funcionan en la segunda)."""
+    """Ejecuta el scraper de una farmacia con reintento inteligente.
+       Reintenta solo si NO obtuvo resultados (fallo de carga o anti-bot)."""
     nombre_farmacia = func.__name__.replace("logic_", "").capitalize()
     antes = len(res_list)
     for intento in (1, 2):
@@ -585,13 +703,15 @@ def scrape_task(func, remedio, res_list):
             driver = get_driver()
             func(remedio, driver, res_list)
         except Exception as e:
-            print(f"Error en hilo de raspado ({nombre_farmacia}, intento {intento}): {e}")
+            print(f"[{nombre_farmacia}] intento {intento} falló: {str(e)[:120]}")
         finally:
             if driver:
                 try: driver.quit()
                 except Exception: pass
-        if len(res_list) > antes:   # ya obtuvo resultado → no reintentar
-            break
+        if len(res_list) > antes:
+            break  # ya hay resultado, no reintentar
+        elif intento == 1:
+            print(f"[{nombre_farmacia}] sin resultados, reintentando...")
 
 
 def _cargar(driver, url):
@@ -628,17 +748,20 @@ _JS_EXTRACTOR_GENERICO = r"""
         return node.parentElement || node;
     }
 
-    // Ordenar por precio ascendente y tomar el primero válido
+    // Ordenar por precio ascendente
     let items = priceEls.map(el => ({ el, val: parse((el.innerText.match(priceRe) || ['0'])[0]) }))
                         .filter(x => x.val > 0)
                         .sort((a, b) => a.val - b.val);
 
+    let resultados = [];
+    let nombresVistos = new Set();
+
     for (const it of items) {
+        if (resultados.length >= 3) break;
         const cont = contenedor(it.el);
         const link = cont.querySelector('a[href]');
         if (!link) continue;
 
-        // Nombre: título del enlace, su texto, o el texto más largo no-precio del contenedor (acotado a hijos directos-ish)
         let nombre = (link.getAttribute('title') || '').trim();
         if (!nombre) nombre = (link.innerText || '').trim().split('\n')[0];
         if (!nombre) {
@@ -648,7 +771,12 @@ _JS_EXTRACTOR_GENERICO = r"""
                 .sort((a, b) => b.length - a.length);
             if (cand.length) nombre = cand[0];
         }
-        if (!nombre || nombre.length > 140) continue;
+        if (!nombre || nombre.length > 140 || nombre.length < 3) continue;
+
+        // Evitar duplicados por nombre
+        let clave = nombre.toLowerCase().substring(0, 40);
+        if (nombresVistos.has(clave)) continue;
+        nombresVistos.add(clave);
 
         // Precio original (oferta): un precio MAYOR dentro del mismo contenedor
         let original = null;
@@ -659,9 +787,9 @@ _JS_EXTRACTOR_GENERICO = r"""
             }
         });
 
-        return { n: nombre, pr: '$' + it.val.toLocaleString('es-CL'), l: link.href, orig: original };
+        resultados.push({ n: nombre, pr: '$' + it.val.toLocaleString('es-CL'), l: link.href, orig: original });
     }
-    return null;
+    return resultados.length > 0 ? resultados : null;
 """
 
 
@@ -698,18 +826,35 @@ def logic_ahumada(remedio, driver, res):
             let tiles = document.querySelectorAll('.product-tile, .grid-tile, .product');
             let results = [];
             tiles.forEach((tile, i) => {
-                if (i >= 3) return;
+                if (i >= 8) return;
                 let nom = tile.querySelector('.pdp-link');
                 let priceWrap = tile.querySelector('.price');
                 if (!nom || !priceWrap) return;
                 let link = nom.querySelector('a');
+
+                // Estructura SFCC: .sales = precio venta, .strike-through = precio normal
                 let salesEl = priceWrap.querySelector('.sales .value, .sales');
                 let strikeEl = priceWrap.querySelector('.strike-through .value, .strike-through, del');
-                let actual = salesEl ? salesEl.innerText.trim() : priceWrap.innerText.split('\\n')[0].trim();
+                let actual = salesEl ? salesEl.innerText.trim() : null;
                 let orig = strikeEl ? strikeEl.innerText.trim() : null;
-                if (actual) results.push({ n: nom.innerText.trim(), pr: actual, l: link ? link.href : window.location.href, orig: orig });
+
+                // Respaldo: si no detectó .sales, tomar el menor de todos los precios del tile
+                if (!actual) {
+                    let todos = priceWrap.innerText.match(/\\$\\s?[\\d.]+/g) || [];
+                    let vals = todos.map(p => parseInt(p.replace(/\\D/g,''),10)).filter(v => v >= 100);
+                    if (vals.length > 0) {
+                        vals.sort((a,b)=>a-b);
+                        actual = '$' + vals[0].toLocaleString('es-CL');
+                        if (vals.length > 1 && vals[vals.length-1] > vals[0] * 1.05) orig = '$' + vals[vals.length-1].toLocaleString('es-CL');
+                    }
+                }
+                if (actual) {
+                    let valNum = parseInt(actual.replace(/\\D/g,''),10) || 999999;
+                    results.push({ n: nom.innerText.trim(), pr: actual, l: link ? link.href : window.location.href, orig: orig, _val: valNum });
+                }
             });
-            return results.length > 0 ? results : null;
+            results.sort((a,b) => a._val - b._val);
+            return results.length > 0 ? results.slice(0,3) : null;
         """)
         if items:
             _agregar_resultados(items, "Ahumada", "#003399", res)
@@ -725,29 +870,65 @@ def logic_drsimi(remedio, driver, res):
             driver.get(f"https://www.drsimi.cl/{remedio}?_q={remedio}&map=ft&order=OrderByPriceASC")
         except Exception:
             driver.execute_script("window.stop();")
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "[class*='brandName'], [class*='productBrand']"))
+        WebDriverWait(driver, 7).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "[class*='productName'], [class*='product-summary'], [class*='galleryItem'], a[href*='/p']"))
         )
+        time.sleep(0.6)
         items = driver.execute_script("""
-            let cards = document.querySelectorAll('[class*="productSummary"], [class*="product-summary"], article');
-            let results = [];
-            cards.forEach((card, i) => {
-                if (i >= 3) return;
-                let nom = card.querySelector('[class*="brandName"], [class*="productBrand"]');
-                let sell = card.querySelector('[class*="sellingPrice"], [class*="currencyContainer"]');
-                let list = card.querySelector('[class*="listPrice"]');
-                let link = card.querySelector('a[class*="clearLink"], a');
-                if (!nom || !sell) return;
-                let actual = sell.innerText.trim();
-                let orig = list ? list.innerText.trim() : null;
-                let esOferta = orig && orig.replace(/\\D/g,'') !== actual.replace(/\\D/g,'') && orig.replace(/\\D/g,'') !== '';
-                results.push({ n: nom.innerText.trim(), pr: actual, l: link ? link.href : window.location.href, orig: esOferta ? orig : null });
+            // VTEX anida varios divs con clases similares por producto.
+            // Estrategia robusta: partir de los LINKS de producto únicos (/p) y subir al contenedor.
+            let productLinks = Array.from(document.querySelectorAll('a[href*="/p"]'));
+            let cardsMap = new Map();  // href -> card (contenedor del producto)
+
+            productLinks.forEach(a => {
+                let href = a.href.split('?')[0];
+                if (cardsMap.has(href)) return;  // ya tenemos este producto
+                // Subir al contenedor que tenga el precio
+                let card = a.closest('[class*="product-summary"], [class*="galleryItem"], article, section, li');
+                if (!card) card = a.parentElement;
+                cardsMap.set(href, { card, link: a });
             });
-            return results.length > 0 ? results : null;
+
+            let results = [];
+            let seen = new Set();
+            for (let [href, obj] of cardsMap) {
+                if (results.length >= 8) break;
+                let card = obj.card;
+                let link = obj.link;
+
+                // Nombre del PRODUCTO
+                let nomEl = card.querySelector(
+                    '[class*="productNameContainer"], [class*="productBrand"], [class*="productName"] span, [class*="productName"], h3 span, h3, h2'
+                );
+                let nombre = nomEl ? nomEl.innerText.trim() : '';
+                if ((!nombre || nombre.length < 5)) {
+                    nombre = (link.getAttribute('title') || link.innerText || '').trim().split('\\n')[0];
+                }
+                if (!nombre || nombre.length < 4) continue;
+
+                // Evitar nombres duplicados
+                let clave = nombre.toLowerCase().substring(0, 30);
+                if (seen.has(clave)) continue;
+                seen.add(clave);
+
+                // Precios
+                let todos = (card.innerText.match(/\\$\\s?[\\d.]+/g) || []);
+                let vals = todos.map(p => parseInt(p.replace(/\\D/g,''),10)).filter(v => v >= 100);
+                if (vals.length === 0) continue;
+                vals = [...new Set(vals)].sort((a,b)=>a-b);
+                let actual = '$' + vals[0].toLocaleString('es-CL');
+                let orig = (vals.length > 1 && vals[vals.length-1] > vals[0] * 1.05) ? '$' + vals[vals.length-1].toLocaleString('es-CL') : null;
+
+                results.push({ n: nombre, pr: actual, l: href, orig: orig, _val: vals[0] });
+            }
+            results.sort((a,b) => a._val - b._val);
+            return results.length > 0 ? results.slice(0,3) : null;
         """)
         if items:
+            print(f"Dr. Simi extrajo {len(items)}: {[(it['n'][:25], it['pr']) for it in items]}")
             _agregar_resultados(items, "Dr. Simi", "#ce000c", res)
         else:
+            print("Dr. Simi: sin items del JS, usando extractor genérico")
             _agregar_resultados(_extraer_generico(driver), "Dr. Simi", "#ce000c", res)
     except Exception as e:
         print(f"Error Dr. Simi: {e}")
@@ -757,26 +938,65 @@ def logic_salcobrand(remedio, driver, res):
     try:
         driver.get(f"https://salcobrand.cl/search_result?query={remedio}&sort=price_asc")
         try:
-            WebDriverWait(driver, 12).until(
+            WebDriverWait(driver, 8).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, ".product, .product-info, .product-card"))
             )
         except Exception:
             pass
-        time.sleep(1.5)
+        time.sleep(0.6)
         items = driver.execute_script("""
             let products = document.querySelectorAll('.product');
             let results = [];
             products.forEach((prod, i) => {
-                if (i >= 3) return;
+                if (i >= 8) return;
                 let info = prod.querySelector('.product-info') || prod.querySelector('.product-card') || prod;
-                let priceEl = prod.querySelector('.price:not(.old-price)') || prod.querySelector('.price') || prod.querySelector('[class*="price"]');
-                let oldEl = prod.querySelector('.old-price');
                 let linkEl = prod.querySelector('a');
-                if (!priceEl || !linkEl) return;
-                let orig = oldEl ? oldEl.innerText.trim() : null;
-                results.push({ n: info.innerText.split('\\n')[0].trim(), pr: priceEl.innerText.trim(), l: linkEl.href, orig: (orig && orig.replace(/\\D/g,'') !== '') ? orig : null });
+                if (!linkEl) return;
+
+                let nombre = info.innerText.split('\\n')[0].trim();
+                let fullText = prod.innerText;
+
+                // Extraer todos los precios con su contexto textual
+                // Salcobrand: "Precio farmacia $X" (normal), "$Y" (venta), tarjeta "$Z"
+                let allPrices = [];
+                let re = /\\$\\s?([\\d.]+)/g;
+                let m;
+                while ((m = re.exec(fullText)) !== null) {
+                    let v = parseInt(m[1].replace(/\\D/g,''),10);
+                    if (v >= 50) allPrices.push(v);
+                }
+                if (allPrices.length === 0) return;
+
+                // Quitar duplicados manteniendo orden de aparición
+                let unicos = [...new Set(allPrices)];
+
+                let precioVenta, precioOrig = null;
+                if (unicos.length === 1) {
+                    precioVenta = unicos[0];
+                } else {
+                    // El precio "Precio farmacia" (normal/tachado) suele ser el MAYOR
+                    // El precio de venta es el siguiente. El de tarjeta es el menor.
+                    let ordenados = [...unicos].sort((a,b)=>a-b);
+                    let mayor = ordenados[ordenados.length-1];   // precio farmacia (tachado)
+                    // precio de venta = el segundo mayor si hay 3+, o el menor si hay 2
+                    if (ordenados.length >= 3) {
+                        precioVenta = ordenados[ordenados.length-2];  // venta público
+                    } else {
+                        precioVenta = ordenados[0];  // con 2 precios, el menor es la oferta
+                    }
+                    if (mayor > precioVenta * 1.03) precioOrig = mayor;
+                }
+
+                results.push({
+                    n: nombre,
+                    pr: '$' + precioVenta.toLocaleString('es-CL'),
+                    l: linkEl.href,
+                    orig: precioOrig ? '$' + precioOrig.toLocaleString('es-CL') : null,
+                    _val: precioVenta
+                });
             });
-            return results.length > 0 ? results : null;
+            results.sort((a,b) => a._val - b._val);
+            return results.length > 0 ? results.slice(0,3) : null;
         """)
         if items:
             _agregar_resultados(items, "Salcobrand", "#ffd400", res)
@@ -857,75 +1077,98 @@ def logic_cruzverde(remedio, res):
                 pass
 
         # =============================================
-        # Estrategia 3: Regex en HTML pre-renderizado
-        # Filtrar SVG y buscar solo productos reales
+        # Estrategia 3: Extraer productos usando los links + slug + precio cercano
+        # Los tiles tienen links /slug-del-producto/ID.html
+        # El nombre se deriva del slug; el precio está DENTRO del bloque del producto
         # =============================================
-        # Eliminar todos los bloques SVG del HTML para no matchear sus atributos
-        html_sin_svg = re.sub(r'<svg[^>]*>.*?</svg>', '', html, flags=re.DOTALL)
-        html_sin_svg = re.sub(r'<style[^>]*>.*?</style>', '', html_sin_svg, flags=re.DOTALL)
+        # Buscar todas las posiciones de links de producto
+        link_pattern = re.compile(r'href=["\'](/([a-z0-9][a-z0-9\-]+)/(\d+)\.html)["\']')
+        link_matches = list(link_pattern.finditer(html))
 
-        # Buscar precios CLP: $ X.XXX o $X.XXX (con o sin punto de miles)
-        precios = re.findall(r'\$\s?([\d]+(?:\.[\d]{3})*)', html_sin_svg)
-        precios = [p for p in precios if int(p.replace('.', '')) >= 100]  # filtrar precios < $100
+        # Tokens de la búsqueda para filtrar relevancia (ej: "paracetamol", "500")
+        tokens_busqueda = [t.lower() for t in re.split(r'[\s,]+', remedio) if len(t) >= 3]
 
-        # Buscar enlaces a productos (.html con slug)
-        links = re.findall(r'href=["\'](/[a-z0-9][a-z0-9\-]+/\d+\.html)["\']', html_sin_svg)
-        links = list(dict.fromkeys(links))  # dedup manteniendo orden
-
-        # Buscar nombres de producto: textos sustanciales cerca de precios
-        # Los nombres suelen estar en elementos con clases product-name, title, o como texto de enlaces
-        nombres = re.findall(
-            r'(?:class=["\'][^"\']*(?:product-name|productName|product-title|name)[^"\']*["\'][^>]*>|'
-            r'<h[23][^>]*>|<a[^>]*title=["\'])([^<"\']{10,100})',
-            html_sin_svg
-        )
-        # Filtrar nombres que no son productos
-        nombres_filtrados = []
-        blacklist = ['cruz verde', 'buscar', 'cerrar', 'iniciar', 'menú', 'filtrar',
-                     'ordenar', 'home', 'logo', 'group', 'rectangle', 'path', 'svg',
-                     'cookie', 'suscri', 'despacho', 'retiro', 'bolsa', 'registro']
-        for n in nombres:
-            n_clean = n.strip()
-            if len(n_clean) < 8:
+        # Construir lista de productos únicos con su posición
+        productos_pos = []
+        vistos = set()
+        for match in link_matches:
+            href = match.group(1)
+            slug = match.group(2)
+            if href in vistos:
                 continue
-            if any(bl in n_clean.lower() for bl in blacklist):
-                continue
-            if n_clean not in nombres_filtrados:
-                nombres_filtrados.append(n_clean)
+            vistos.add(href)
+            productos_pos.append((match.start(), match.end(), href, slug))
 
-        # Emparejar: nombre + precio + link
-        for i in range(min(3, max(len(precios), len(links), len(nombres_filtrados)))):
-            nombre = nombres_filtrados[i] if i < len(nombres_filtrados) else f"Producto Cruz Verde"
-            precio = precios[i] if i < len(precios) else None
-            link = f"https://www.cruzverde.cl{links[i]}" if i < len(links) else f"https://www.cruzverde.cl/search?query={query}"
-
-            if not precio:
+        # Recolectar TODOS los productos relevantes (sin cortar), luego ordenar por precio
+        for idx, (start, end, href, slug) in enumerate(productos_pos):
+            nombre = slug.replace('-', ' ').strip()
+            nombre = ' '.join(w.capitalize() for w in nombre.split())
+            if len(nombre) < 4:
                 continue
 
-            # Detectar oferta: si hay un precio mayor justo después
+            # FILTRO DE RELEVANCIA: el slug debe contener al menos un token de la búsqueda
+            nombre_lower = nombre.lower()
+            if tokens_busqueda:
+                coincide = any(tok in nombre_lower or tok[:6] in nombre_lower for tok in tokens_busqueda)
+                if not coincide:
+                    continue
+
+            # El bloque del producto va DESDE este link hasta el siguiente producto.
+            # NO mirar antes del link (capturaría el precio del producto anterior).
+            siguiente_pos = productos_pos[idx + 1][0] if idx + 1 < len(productos_pos) else min(len(html), end + 3000)
+            bloque = html[start:siguiente_pos]
+
+            # Buscar precios en el bloque (formato $X.XXX)
+            precios_bloque = []
+            for m in re.finditer(r'\$\s?([\d]+(?:\.[\d]{3})+)', bloque):
+                v = int(m.group(1).replace('.', ''))
+                if 100 <= v <= 999999:
+                    precios_bloque.append(v)
+
+            # Si no hay precio en el bloque posterior, mirar una ventana pequeña antes (300 chars)
+            if not precios_bloque:
+                bloque_prev = html[max(0, start - 300):start]
+                for m in re.finditer(r'\$\s?([\d]+(?:\.[\d]{3})+)', bloque_prev):
+                    v = int(m.group(1).replace('.', ''))
+                    if 100 <= v <= 999999:
+                        precios_bloque.append(v)
+
+            if not precios_bloque:
+                continue
+
+            precios_unicos = sorted(set(precios_bloque))
+            precio = precios_unicos[0]  # menor = precio oferta real
+
             precio_original = None
-            if i * 2 + 1 < len(precios):
-                val_actual = int(precios[i].replace('.', ''))
-                val_orig = int(precios[i * 2 + 1].replace('.', '')) if i * 2 + 1 < len(precios) else 0
-                if val_orig > val_actual:
-                    precio_original = precios[i * 2 + 1]
+            if len(precios_unicos) >= 2:
+                mayor = precios_unicos[-1]
+                if mayor > precio * 1.05 and mayor < precio * 5:
+                    precio_original = mayor
 
             productos.append({
-                "farmacia": "Cruz Verde", "nombre": nombre, "precio": precio,
-                "link": link, "color": "#009639",
+                "farmacia": "Cruz Verde",
+                "nombre": nombre,
+                "precio": f"{precio:,}".replace(",", "."),
+                "link": f"https://www.cruzverde.cl{href}",
+                "color": "#009639",
                 "oferta": bool(precio_original),
-                "precio_original": precio_original
+                "precio_original": f"{precio_original:,}".replace(",", ".") if precio_original else None,
+                "_val": precio
             })
+
+        # Ordenar por precio ascendente y tomar los 3 más baratos
+        productos.sort(key=lambda p: p["_val"])
+        productos = productos[:3]
+        for p in productos:
+            p.pop("_val", None)
 
         if productos:
             res.extend(productos)
-            print(f"Cruz Verde SSR regex: {len(productos)} producto(s)")
+            print(f"Cruz Verde extrajo {len(productos)}: {[(p['nombre'][:25], p['precio']) for p in productos]}")
         else:
-            # Debug: qué encontró cada regex
-            print(f"Cruz Verde SSR: {len(html)} chars, {len(precios)} precios, {len(links)} links, {len(nombres_filtrados)} nombres")
-            print(f"  Precios: {precios[:5]}")
-            print(f"  Links: {links[:3]}")
-            print(f"  Nombres: {nombres_filtrados[:5]}")
+            print(f"Cruz Verde: {len(html)} chars, {len(link_matches)} links, {len(productos_pos)} productos únicos, ninguno con precio relevante.")
+            if productos_pos:
+                print(f"  Primeros slugs: {[p[3] for p in productos_pos[:5]]}")
 
     except Exception as e:
         print(f"Error Cruz Verde: {e}")
@@ -1068,11 +1311,116 @@ def scraping_manual():
         threading.Thread(target=logic_cruzverde, args=(remedio, res))
     ]
     for t in threads: t.start()
-    for t in threads: t.join()
+    # Timeout global: si una farmacia se cuelga, no esperar más de 35s en total
+    for t in threads: t.join(timeout=35)
 
-    if res:
-        guardar_busqueda(remedio, res, user_id=usuario.get("id"))
-    return jsonify({"precios": res})
+    # Filtro de relevancia: descartar resultados que claramente no corresponden a la búsqueda
+    res_filtrado = _filtrar_relevantes(res, remedio)
+
+    # Reporte de qué farmacias respondieron (para mostrar al usuario)
+    farmacias_con_datos = set(r['farmacia'] for r in res_filtrado)
+    todas_farmacias = {"Ahumada", "Dr. Simi", "Salcobrand", "Cruz Verde"}
+    farmacias_sin_datos = list(todas_farmacias - farmacias_con_datos)
+
+    if res_filtrado:
+        guardar_busqueda(remedio, res_filtrado, user_id=usuario.get("id"))
+        # NOTA: el ahorro ya NO se registra en cada búsqueda (no era realista).
+        # Solo se registra cuando el usuario optimiza una receta médica completa.
+
+    print(f"Búsqueda '{remedio}': {len(res_filtrado)} resultados de {len(farmacias_con_datos)}/4 farmacias")
+    return jsonify({
+        "precios": res_filtrado,
+        "farmacias_sin_datos": farmacias_sin_datos
+    })
+
+
+def _registrar_ahorro(user_id, remedio, resultados):
+    """Calcula y guarda el ahorro potencial (precio más caro - más barato)."""
+    if not user_id or len(resultados) < 2:
+        return
+    precios = []
+    for r in resultados:
+        val = int(re.sub(r'\D', '', str(r.get('precio', '0'))) or '0')
+        if val >= 50:
+            precios.append(val)
+    if len(precios) < 2:
+        return
+    caro = max(precios)
+    barato = min(precios)
+    ahorro = caro - barato
+    if ahorro <= 0:
+        return
+    try:
+        conn = sqlite3.connect('farmacia.db')
+        c = conn.cursor()
+        c.execute('''INSERT INTO ahorros (id_usuario, medicamento, precio_caro, precio_barato, ahorro)
+                     VALUES (?, ?, ?, ?, ?)''', (user_id, remedio.lower(), caro, barato, ahorro))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Error registrando ahorro: {e}")
+
+
+@app.route('/registrar_ahorro_receta', methods=['POST'])
+def registrar_ahorro_receta():
+    """Registra el ahorro real al optimizar una RECETA completa.
+       Solo aquí se acumula ahorro (cuando el usuario realmente va a comprar)."""
+    usuario = resolver_token()
+    if not usuario:
+        return jsonify({"error": "Sesión requerida."}), 401
+    data = request.json
+    medicamento = (data.get('medicamento') or 'Receta médica').strip()
+    try:
+        caro = int(re.sub(r'\D', '', str(data.get('precio_caro', '0'))) or '0')
+        barato = int(re.sub(r'\D', '', str(data.get('precio_barato', '0'))) or '0')
+    except (ValueError, TypeError):
+        return jsonify({"error": "Precios inválidos."}), 400
+
+    ahorro = caro - barato
+    if ahorro <= 0 or barato < 50:
+        return jsonify({"mensaje": "Sin ahorro que registrar."})
+
+    try:
+        conn = sqlite3.connect('farmacia.db')
+        c = conn.cursor()
+        c.execute('''INSERT INTO ahorros (id_usuario, medicamento, precio_caro, precio_barato, ahorro)
+                     VALUES (?, ?, ?, ?, ?)''', (usuario['id'], medicamento.lower(), caro, barato, ahorro))
+        conn.commit()
+        conn.close()
+        return jsonify({"mensaje": f"Ahorro de ${ahorro:,} registrado.".replace(",", ".")})
+    except Exception as e:
+        print(f"Error registrando ahorro receta: {e}")
+        return jsonify({"error": "No se pudo registrar."}), 500
+
+
+def _filtrar_relevantes(resultados, remedio):
+    """Descarta solo basura evidente (sin nombre, precio $0, texto de navegación).
+    NO descarta productos por nombre, para no perder resultados válidos de las farmacias."""
+    if not resultados:
+        return resultados
+
+    # Basura conocida que nunca es un producto real
+    basura = ['resultados para', 'producto cruz verde', 'búsqueda', 'sin resultados',
+              'no encontrado', 'logo-', 'group ', 'rectangle', 'logo horizontal']
+
+    filtrados = []
+    for r in resultados:
+        nombre = (r.get('nombre') or '').lower().strip()
+
+        # Descartar basura evidente
+        if any(b in nombre for b in basura):
+            continue
+        # Descartar nombres vacíos o muy cortos
+        if len(nombre) < 4:
+            continue
+        # Descartar precios en $0 o inválidos
+        precio_val = int(re.sub(r'\D', '', str(r.get('precio', '0'))) or '0')
+        if precio_val < 50:
+            continue
+
+        filtrados.append(r)
+
+    return filtrados
 
 
 @app.route('/obtener_medicamentos')
@@ -1134,15 +1482,255 @@ def medicamentos_populares():
     ''')
     resultados = []
     for row in c.fetchall():
+        nombre_med = row[0]
+        # Obtener la tendencia de precios (últimos registros del precio mínimo en el tiempo)
+        c.execute('''
+            SELECT MIN(h.precio) as precio
+            FROM historial h
+            JOIN medicamentos m ON h.id_medicamento = m.id_medicamento
+            WHERE m.nombre_buscado = ?
+            GROUP BY date(h.fecha_registro), strftime('%H:%M', h.fecha_registro)
+            ORDER BY h.fecha_registro ASC
+            LIMIT 12
+        ''', (nombre_med,))
+        tendencia = [r[0] for r in c.fetchall()]
+
         resultados.append({
-            "nombre": row[0],
+            "nombre": nombre_med,
             "precio_min": row[1],
             "farmacia": row[2],
             "color": row[3],
-            "busquedas": row[4]
+            "busquedas": row[4],
+            "tendencia": tendencia
         })
     conn.close()
     return jsonify(resultados)
+
+
+# =========================================================
+# PRECIOS COMUNITARIOS (tipo Waze)
+# =========================================================
+
+@app.route('/comunidad/reportar', methods=['POST'])
+def reportar_precio():
+    usuario = resolver_token()
+    if not usuario:
+        return jsonify({"error": "Debes iniciar sesión para reportar precios."}), 401
+    data = request.json
+    medicamento = (data.get('medicamento') or '').strip().lower()
+    farmacia = (data.get('farmacia') or '').strip()
+    comuna = (data.get('comuna') or '').strip()
+    try:
+        precio = int(re.sub(r'\D', '', str(data.get('precio', '0'))) or '0')
+    except (ValueError, TypeError):
+        return jsonify({"error": "Precio inválido."}), 400
+
+    if not medicamento or not farmacia or precio < 50:
+        return jsonify({"error": "Completa medicamento, farmacia y un precio válido."}), 400
+    # Validación de rango realista: ningún medicamento en Chile cuesta más de $500.000
+    if precio > 500000:
+        return jsonify({"error": "El precio ingresado no parece realista (máximo $500.000 CLP)."}), 400
+    if len(medicamento) < 3 or len(medicamento) > 80:
+        return jsonify({"error": "El nombre del medicamento no es válido."}), 400
+
+    conn = sqlite3.connect('farmacia.db')
+    c = conn.cursor()
+    c.execute('''INSERT INTO precios_comunidad (id_usuario, nombre_usuario, medicamento, farmacia, precio, comuna, estado)
+                 VALUES (?, ?, ?, ?, ?, ?, 'pendiente')''',
+              (usuario['id'], usuario['nombre'], medicamento, farmacia, precio, comuna))
+    conn.commit()
+    conn.close()
+    return jsonify({"mensaje": "¡Gracias! Tu reporte fue enviado y está pendiente de aprobación por un administrador."})
+
+
+@app.route('/comunidad/precios', methods=['GET'])
+def listar_precios_comunidad():
+    """Lista solo los precios APROBADOS por la comunidad para un medicamento."""
+    medicamento = (request.args.get('medicamento') or '').strip().lower()
+    conn = sqlite3.connect('farmacia.db')
+    c = conn.cursor()
+    if medicamento:
+        c.execute('''SELECT id_reporte, nombre_usuario, medicamento, farmacia, precio, comuna, votos, fecha_reporte
+                     FROM precios_comunidad WHERE medicamento = ? AND estado = 'aprobado'
+                     ORDER BY votos DESC, fecha_reporte DESC LIMIT 20''', (medicamento,))
+    else:
+        c.execute('''SELECT id_reporte, nombre_usuario, medicamento, farmacia, precio, comuna, votos, fecha_reporte
+                     FROM precios_comunidad WHERE estado = 'aprobado' ORDER BY fecha_reporte DESC LIMIT 20''')
+    reportes = []
+    for row in c.fetchall():
+        reportes.append({
+            "id": row[0], "usuario": row[1], "medicamento": row[2], "farmacia": row[3],
+            "precio": row[4], "comuna": row[5], "votos": row[6], "fecha": row[7]
+        })
+    conn.close()
+    return jsonify(reportes)
+
+
+@app.route('/comunidad/mis_reportes', methods=['GET'])
+def mis_reportes():
+    """Devuelve los reportes del usuario con su estado (para que vea aprobados/rechazados)."""
+    usuario = resolver_token()
+    if not usuario:
+        return jsonify({"error": "Sesión requerida."}), 401
+    conn = sqlite3.connect('farmacia.db')
+    c = conn.cursor()
+    c.execute('''SELECT id_reporte, medicamento, farmacia, precio, comuna, estado, motivo_rechazo, fecha_reporte
+                 FROM precios_comunidad WHERE id_usuario = ? ORDER BY fecha_reporte DESC LIMIT 30''', (usuario['id'],))
+    reportes = []
+    for row in c.fetchall():
+        reportes.append({
+            "id": row[0], "medicamento": row[1], "farmacia": row[2], "precio": row[3],
+            "comuna": row[4], "estado": row[5], "motivo_rechazo": row[6], "fecha": row[7]
+        })
+    conn.close()
+    return jsonify(reportes)
+
+
+@app.route('/comunidad/votar/<int:rid>', methods=['POST'])
+def votar_precio(rid):
+    usuario = resolver_token()
+    if not usuario:
+        return jsonify({"error": "Sesión requerida."}), 401
+    conn = sqlite3.connect('farmacia.db')
+    c = conn.cursor()
+    c.execute("UPDATE precios_comunidad SET votos = votos + 1 WHERE id_reporte = ?", (rid,))
+    conn.commit()
+    conn.close()
+    return jsonify({"mensaje": "Voto registrado."})
+
+
+# =========================================================
+# PERFIL: ÍNDICE DE AHORRO + NIVEL DE REPORTERO
+# =========================================================
+
+def _calcular_nivel(num_reportes):
+    """Determina el nivel de reportero según cantidad de reportes."""
+    if num_reportes >= 20:
+        return {"nivel": "Oro", "color": "#f59e0b", "icono": "🥇", "siguiente": None, "faltan": 0}
+    elif num_reportes >= 10:
+        return {"nivel": "Plata", "color": "#94a3b8", "icono": "🥈", "siguiente": "Oro", "faltan": 20 - num_reportes}
+    elif num_reportes >= 3:
+        return {"nivel": "Bronce", "color": "#b45309", "icono": "🥉", "siguiente": "Plata", "faltan": 10 - num_reportes}
+    else:
+        return {"nivel": "Novato", "color": "#64748b", "icono": "🌱", "siguiente": "Bronce", "faltan": 3 - num_reportes}
+
+
+@app.route('/perfil/stats', methods=['GET'])
+def perfil_stats():
+    usuario = resolver_token()
+    if not usuario:
+        return jsonify({"error": "Sesión requerida."}), 401
+    conn = sqlite3.connect('farmacia.db')
+    c = conn.cursor()
+
+    # Ahorro total acumulado
+    c.execute("SELECT COALESCE(SUM(ahorro), 0), COUNT(*) FROM ahorros WHERE id_usuario = ?", (usuario['id'],))
+    ahorro_row = c.fetchone()
+    ahorro_total = ahorro_row[0] or 0
+    num_comparaciones = ahorro_row[1] or 0
+
+    # Número de reportes comunitarios APROBADOS
+    c.execute("SELECT COUNT(*), COALESCE(SUM(votos), 0) FROM precios_comunidad WHERE id_usuario = ? AND estado = 'aprobado'", (usuario['id'],))
+    rep_row = c.fetchone()
+    num_reportes = rep_row[0] or 0
+    total_votos = rep_row[1] or 0
+
+    # Mejor ahorro individual
+    c.execute("SELECT medicamento, ahorro FROM ahorros WHERE id_usuario = ? ORDER BY ahorro DESC LIMIT 1", (usuario['id'],))
+    mejor = c.fetchone()
+    conn.close()
+
+    nivel = _calcular_nivel(num_reportes)
+
+    return jsonify({
+        "ahorro_total": ahorro_total,
+        "num_comparaciones": num_comparaciones,
+        "num_reportes": num_reportes,
+        "total_votos": total_votos,
+        "mejor_ahorro": {"medicamento": mejor[0], "monto": mejor[1]} if mejor else None,
+        "nivel": nivel
+    })
+
+
+# =========================================================
+# DETECTOR DE INTERACCIONES (IA)
+# =========================================================
+
+@app.route('/interacciones', methods=['POST'])
+def detectar_interacciones():
+    data = request.json
+    medicamentos = data.get('medicamentos', [])
+    if not medicamentos or len(medicamentos) < 2:
+        return jsonify({"error": "Ingresa al menos 2 medicamentos."}), 400
+
+    lista = ", ".join(medicamentos)
+    try:
+        completion = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": (
+                    "Eres un farmacólogo clínico experto. El usuario te da una lista de medicamentos. "
+                    "Analiza posibles interacciones medicamentosas entre ellos. "
+                    "Responde SOLO con JSON válido (sin markdown) con este formato:\n"
+                    '{"riesgo_general": "alto/medio/bajo/ninguno", '
+                    '"interacciones": [{"par": "Medicamento A + Medicamento B", "severidad": "alta/media/baja", '
+                    '"descripcion": "qué puede pasar", "recomendacion": "qué hacer"}], '
+                    '"resumen": "resumen general en 1-2 líneas"}\n'
+                    "Si no hay interacciones conocidas, devuelve interacciones vacías y riesgo ninguno. "
+                    "Sé preciso y prudente. Siempre recomienda consultar a un médico o farmacéutico."
+                )},
+                {"role": "user", "content": f"Medicamentos: {lista}"}
+            ],
+            temperature=0.2
+        )
+        respuesta = completion.choices[0].message.content.strip()
+        if respuesta.startswith("```"):
+            respuesta = respuesta.split("```")[1]
+            if respuesta.startswith("json"):
+                respuesta = respuesta[4:]
+            respuesta = respuesta.strip()
+        resultado = json.loads(respuesta)
+        return jsonify(resultado)
+    except Exception as e:
+        print(f"Error interacciones: {e}")
+        return jsonify({"error": "No se pudo analizar las interacciones."}), 500
+
+
+# =========================================================
+# FARMACIAS DE TURNO
+# =========================================================
+
+@app.route('/farmacias_turno', methods=['GET'])
+def farmacias_turno():
+    """Obtiene farmacias de turno desde la API pública del MINSAL."""
+    comuna = (request.args.get('comuna') or '').strip().lower()
+    try:
+        url = "https://midas.minsal.cl/farmacia_v2/WS/getLocalesTurnos.php"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            data = json.loads(resp.read().decode('utf-8', errors='ignore'))
+
+        resultados = []
+        for f in data:
+            f_comuna = (f.get('comuna_nombre') or '').lower()
+            if comuna and comuna not in f_comuna:
+                continue
+            resultados.append({
+                "nombre": f.get('local_nombre', '').title(),
+                "direccion": f.get('local_direccion', '').title(),
+                "comuna": (f.get('comuna_nombre') or '').title(),
+                "horario": f"{f.get('funcionamiento_hora_apertura', '')} - {f.get('funcionamiento_hora_cierre', '')}",
+                "telefono": f.get('local_telefono', ''),
+                "lat": f.get('local_lat', ''),
+                "lng": f.get('local_lng', '')
+            })
+            if len(resultados) >= 30:
+                break
+
+        return jsonify(resultados)
+    except Exception as e:
+        print(f"Error farmacias de turno: {e}")
+        return jsonify({"error": "No se pudo obtener farmacias de turno."}), 500
 
 
 # =========================================================
