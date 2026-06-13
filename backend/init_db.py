@@ -77,6 +77,28 @@ def inicializar_nuevo_esquema():
                         fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
                         FOREIGN KEY(id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE)''')
 
+    cursor.execute('''CREATE TABLE precios_comunidad (
+                        id_reporte INTEGER PRIMARY KEY AUTOINCREMENT,
+                        id_usuario INTEGER NOT NULL,
+                        nombre_usuario TEXT,
+                        medicamento TEXT NOT NULL,
+                        farmacia TEXT NOT NULL,
+                        precio INTEGER NOT NULL,
+                        comuna TEXT,
+                        votos INTEGER DEFAULT 0,
+                        fecha_reporte DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY(id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE)''')
+
+    cursor.execute('''CREATE TABLE ahorros (
+                        id_ahorro INTEGER PRIMARY KEY AUTOINCREMENT,
+                        id_usuario INTEGER NOT NULL,
+                        medicamento TEXT NOT NULL,
+                        precio_caro INTEGER NOT NULL,
+                        precio_barato INTEGER NOT NULL,
+                        ahorro INTEGER NOT NULL,
+                        fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY(id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE)''')
+
     conn.commit()
     conn.close()
     print("¡Base de datos completa!")
