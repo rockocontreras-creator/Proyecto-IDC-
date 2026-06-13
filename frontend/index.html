@@ -16,13 +16,55 @@
     <!-- PANTALLA DE AUTENTICACIÓN (cubre toda la app al inicio)   -->
     <!-- ========================================================= -->
     <div id="auth-overlay" class="auth-overlay">
-        <div class="auth-card">
+        <!-- Iconos flotantes decorativos -->
+        <div class="auth-floating-icons">
+            <i data-lucide="pill" style="top:15%;left:10%;animation-delay:0s;"></i>
+            <i data-lucide="heart-pulse" style="top:25%;left:85%;animation-delay:1.5s;"></i>
+            <i data-lucide="cross" style="top:65%;left:8%;animation-delay:3s;"></i>
+            <i data-lucide="stethoscope" style="top:70%;left:88%;animation-delay:2s;"></i>
+        </div>
 
-            <!-- Logo dentro del modal -->
-            <div class="auth-brand">
-                <i data-lucide="activity" class="auth-brand-icon"></i>
-                <span>FarmaConnect</span>
+        <div class="auth-split">
+            <!-- PANEL IZQUIERDO: carrusel de farmacias -->
+            <div class="auth-left-panel">
+                <div class="auth-carousel" id="auth-carousel">
+                    <div class="auth-slide active" data-farmacia="Cruz Verde" style="--farm-color:#009639;">
+                        <div class="auth-slide-icon"><i data-lucide="cross"></i></div>
+                        <h3>Cruz Verde</h3>
+                        <p>Compara los precios de Cruz Verde al instante</p>
+                    </div>
+                    <div class="auth-slide" data-farmacia="Farmacias Ahumada" style="--farm-color:#003399;">
+                        <div class="auth-slide-icon"><i data-lucide="plus-circle"></i></div>
+                        <h3>Farmacias Ahumada</h3>
+                        <p>Encuentra las mejores ofertas de Ahumada</p>
+                    </div>
+                    <div class="auth-slide" data-farmacia="Salcobrand" style="--farm-color:#e6a817;">
+                        <div class="auth-slide-icon"><i data-lucide="heart-pulse"></i></div>
+                        <h3>Salcobrand</h3>
+                        <p>Revisa precios y descuentos de Salcobrand</p>
+                    </div>
+                    <div class="auth-slide" data-farmacia="Dr. Simi" style="--farm-color:#ce000c;">
+                        <div class="auth-slide-icon"><i data-lucide="pill"></i></div>
+                        <h3>Dr. Simi</h3>
+                        <p>Descubre los precios económicos de Dr. Simi</p>
+                    </div>
+                </div>
+                <div class="auth-carousel-dots" id="auth-carousel-dots"></div>
+                <div class="auth-left-footer">
+                    <i data-lucide="shield-check" style="width:16px;height:16px;"></i>
+                    Comparamos 4 farmacias en segundos
+                </div>
             </div>
+
+            <!-- PANEL DERECHO: formulario -->
+            <div class="auth-card">
+
+                <!-- Logo dentro del modal -->
+                <div class="auth-brand">
+                    <i data-lucide="activity" class="auth-brand-icon"></i>
+                    <span>FarmaConnect</span>
+                </div>
+                <p class="auth-subtitle">Tu salud y tu bolsillo, en un solo lugar</p>
 
             <!-- TABS Login / Registro -->
             <div class="auth-tabs">
@@ -76,14 +118,24 @@
                     </div>
                 </div>
                 <div class="auth-field">
-                    <label>Contraseña <span class="auth-hint">(mín. 6 caracteres)</span></label>
+                    <label>Contraseña <span class="auth-hint">(mín. 8 caracteres)</span></label>
                     <div class="auth-input-wrap">
                         <i data-lucide="lock" class="auth-input-icon"></i>
                         <input type="password" id="reg-password" placeholder="••••••••" autocomplete="new-password"
+                               oninput="evaluarPassword(this.value)"
                                onkeypress="if(event.key==='Enter') doRegistro()">
                         <button class="toggle-pw-btn" onclick="togglePw('reg-password', this)" tabindex="-1">
                             <i data-lucide="eye"></i>
                         </button>
+                    </div>
+                    <div class="pw-strength" id="pw-strength">
+                        <div class="pw-strength-bars">
+                            <div class="pw-strength-bar" id="pw-bar-1"></div>
+                            <div class="pw-strength-bar" id="pw-bar-2"></div>
+                            <div class="pw-strength-bar" id="pw-bar-3"></div>
+                            <div class="pw-strength-bar" id="pw-bar-4"></div>
+                        </div>
+                        <span class="pw-strength-label" id="pw-strength-label"></span>
                     </div>
                 </div>
                 <button class="auth-submit-btn" onclick="doRegistro()" id="btn-registro">
@@ -92,7 +144,8 @@
                 </button>
             </div>
 
-        </div>
+            </div><!-- /auth-card -->
+        </div><!-- /auth-split -->
     </div>
 
     <!-- ========================================================= -->
@@ -120,6 +173,12 @@
                 <button class="nav-btn" onclick="showSection('optimizador', this)">
                     <i data-lucide="calculator"></i> <span data-i18n="nav_optimizador">Optimizador</span>
                 </button>
+                <button class="nav-btn" onclick="showSection('interacciones', this)">
+                    <i data-lucide="alert-triangle"></i> <span data-i18n="nav_interacciones">Interacciones</span>
+                </button>
+                <button class="nav-btn" onclick="showSection('turno', this)">
+                    <i data-lucide="clock"></i> <span data-i18n="nav_turno">Farmacias de Turno</span>
+                </button>
                 <button class="nav-btn" onclick="abrirHistorial(this)">
                     <i data-lucide="history"></i> Historial
                 </button>
@@ -133,16 +192,27 @@
 
             <!-- Perfil de usuario en sidebar -->
             <div class="sidebar-user-card" id="sidebar-user">
-                <div class="user-avatar" id="user-avatar-initials">?</div>
-                <div class="user-info">
+                <div class="user-avatar" id="user-avatar-initials" onclick="abrirPerfil()" style="cursor:pointer;">?</div>
+                <div class="user-info" onclick="abrirPerfil()" style="cursor:pointer;">
                     <p class="user-name" id="sidebar-user-name">—</p>
-                    <p class="user-email" id="sidebar-user-email">—</p>
+                    <p class="user-savings" id="sidebar-savings">Ver mi ahorro</p>
                 </div>
                 <button class="logout-btn" onclick="doLogout()" title="Cerrar sesión">
                     <i data-lucide="log-out"></i>
                 </button>
             </div>
         </aside>
+
+        <!-- Modal de Perfil (ahorro + nivel) -->
+        <div id="perfil-modal" class="modal-overlay" style="display:none;">
+            <div class="modal-card" style="max-width:520px;">
+                <div class="modal-header">
+                    <h3><i data-lucide="user" style="width:20px;height:20px;vertical-align:middle;margin-right:6px;"></i> Mi Perfil</h3>
+                    <button class="modal-close" onclick="document.getElementById('perfil-modal').style.display='none'">✕</button>
+                </div>
+                <div id="perfil-content"></div>
+            </div>
+        </div>
 
         <main class="main-content">
             <div class="top-bar">
@@ -312,11 +382,40 @@
                             <button class="btn-bioequivalente" id="btn-bioequivalente" onclick="buscarBioequivalente()">
                                 <i data-lucide="flask-conical"></i> Buscar alternativa genérica
                             </button>
+                            <button class="btn-reportar" id="btn-reportar" onclick="abrirModalReporte()">
+                                <i data-lucide="map-pin"></i> Reportar precio visto
+                            </button>
                         </div>
                         <div id="bioequivalente-result" style="display:none;"></div>
                     </div>
 
                     <div id="scraping-results" class="results-layout-grid"></div>
+
+                    <!-- Precios reportados por la comunidad -->
+                    <div id="comunidad-precios" style="display:none;"></div>
+
+                    <!-- Calculadora de tratamiento completo -->
+                    <div id="calc-tratamiento" style="display:none;">
+                        <div class="calc-card">
+                            <h3><i data-lucide="calculator" style="width:18px;height:18px;vertical-align:middle;"></i> Calculadora de tratamiento</h3>
+                            <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:14px;">Calcula cuántas cajas necesitas y el costo total del tratamiento.</p>
+                            <div class="calc-grid">
+                                <div class="calc-field">
+                                    <label>Tomas por día</label>
+                                    <input type="number" id="calc-tomas" class="input-premium" value="3" min="1" oninput="calcularTratamiento()">
+                                </div>
+                                <div class="calc-field">
+                                    <label>Días de tratamiento</label>
+                                    <input type="number" id="calc-dias" class="input-premium" value="7" min="1" oninput="calcularTratamiento()">
+                                </div>
+                                <div class="calc-field">
+                                    <label>Unidades por caja</label>
+                                    <input type="number" id="calc-unidades" class="input-premium" value="16" min="1" oninput="calcularTratamiento()">
+                                </div>
+                            </div>
+                            <div id="calc-resultado" class="calc-resultado"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -397,6 +496,56 @@
                     <div class="legal-warning" style="margin-top:16px;">
                         ⚠️ Verifica siempre que los medicamentos extraídos coincidan con tu receta antes de comprar.
                     </div>
+                </div>
+            </div>
+
+            <!-- SECCIÓN: DETECTOR DE INTERACCIONES -->
+            <div id="interacciones-section" class="content-section">
+                <div class="card-premium">
+                    <div class="section-header">
+                        <h2>Detector de Interacciones</h2>
+                        <p>Ingresa los medicamentos que tomas y la IA detectará posibles interacciones peligrosas entre ellos.</p>
+                    </div>
+
+                    <div class="inter-input-area">
+                        <div class="inter-add-row">
+                            <input type="text" id="inter-med-input" class="input-premium" placeholder="Ej: Paracetamol, Ibuprofeno..." onkeypress="if(event.key==='Enter') agregarMedInteraccion()">
+                            <button class="btn-premium" onclick="agregarMedInteraccion()">
+                                <i data-lucide="plus"></i> Agregar
+                            </button>
+                        </div>
+                        <div id="inter-chips" class="inter-chips"></div>
+                        <button class="btn-premium inter-analyze-btn" id="inter-analyze-btn" onclick="analizarInteracciones()" disabled style="width:100%;justify-content:center;margin-top:12px;">
+                            <i data-lucide="alert-triangle"></i> Analizar interacciones
+                        </button>
+                    </div>
+
+                    <div id="inter-result" style="display:none;margin-top:20px;"></div>
+
+                    <div class="legal-warning" style="margin-top:16px;">
+                        ⚠️ Este análisis es orientativo y generado por IA. Consulta SIEMPRE a tu médico o farmacéutico antes de combinar medicamentos.
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECCIÓN: FARMACIAS DE TURNO -->
+            <div id="turno-section" class="content-section">
+                <div class="card-premium">
+                    <div class="section-header">
+                        <h2>Farmacias de Turno</h2>
+                        <p>Encuentra las farmacias de turno (24h) disponibles hoy en tu comuna.</p>
+                    </div>
+
+                    <div class="turno-search-row">
+                        <select id="turno-comuna" class="input-premium select-premium" style="flex:1;">
+                            <option value="">Selecciona tu comuna</option>
+                        </select>
+                        <button class="btn-premium" onclick="buscarFarmaciasTurno()">
+                            <i data-lucide="search"></i> Buscar
+                        </button>
+                    </div>
+
+                    <div id="turno-result" style="margin-top:20px;"></div>
                 </div>
             </div>
 
@@ -490,17 +639,20 @@
                     <div class="stat-card"><span class="stat-label">Administradores</span><span class="stat-value" id="stat-admins">—</span></div>
                     <div class="stat-card"><span class="stat-label">Medicamentos</span><span class="stat-value" id="stat-meds">—</span></div>
                     <div class="stat-card"><span class="stat-label">Búsquedas</span><span class="stat-value" id="stat-busquedas">—</span></div>
+                    <div class="stat-card stat-card-alert"><span class="stat-label">Reportes pendientes</span><span class="stat-value" id="stat-pendientes">—</span></div>
                 </div>
 
                 <!-- Sub-pestañas del panel -->
                 <div class="admin-tabs">
                     <button class="admin-tab active" onclick="adminTab('usuarios', this)">Usuarios</button>
+                    <button class="admin-tab" onclick="adminTab('reportes', this)">Reportes <span id="admin-reportes-badge" class="admin-tab-badge" style="display:none;">0</span></button>
                     <button class="admin-tab" onclick="adminTab('historial', this)">Historial</button>
                     <button class="admin-tab" onclick="adminTab('medicamentos', this)">Medicamentos</button>
                 </div>
 
                 <div class="card-premium" style="padding:0;overflow:hidden;">
                     <div id="admin-panel-usuarios" class="admin-panel"></div>
+                    <div id="admin-panel-reportes" class="admin-panel" style="display:none;"></div>
                     <div id="admin-panel-historial" class="admin-panel" style="display:none;"></div>
                     <div id="admin-panel-medicamentos" class="admin-panel" style="display:none;"></div>
                 </div>
@@ -537,6 +689,59 @@
             <div id="edit-user-alert" class="auth-alert error" style="display:none;"></div>
             <button class="auth-submit-btn" onclick="guardarUsuario()">
                 <span>Guardar cambios</span><i data-lucide="check"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Modal de reportar precio comunitario -->
+    <div id="reporte-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-card" style="max-width:460px;">
+            <div class="modal-header">
+                <h3><i data-lucide="map-pin" style="width:20px;height:20px;vertical-align:middle;margin-right:6px;color:#10b981;"></i> Reportar precio visto</h3>
+                <button class="modal-close" onclick="cerrarModalReporte()">✕</button>
+            </div>
+            <p style="color:var(--text-muted);font-size:0.85rem;">Ayuda a la comunidad reportando el precio que viste en una farmacia física. Tus datos valen oro para otros.</p>
+
+            <div class="auth-field">
+                <label>Medicamento</label>
+                <div class="auth-input-wrap">
+                    <i data-lucide="pill" class="auth-input-icon"></i>
+                    <input type="text" id="reporte-med" class="input-premium" placeholder="Ej: Paracetamol 500mg">
+                </div>
+            </div>
+            <div class="auth-field">
+                <label>Farmacia</label>
+                <div class="auth-input-wrap">
+                    <i data-lucide="building-2" class="auth-input-icon"></i>
+                    <select id="reporte-farmacia" class="input-premium select-premium" style="width:100%;">
+                        <option value="">Selecciona farmacia</option>
+                        <option value="Ahumada">Ahumada</option>
+                        <option value="Dr. Simi">Dr. Simi</option>
+                        <option value="Salcobrand">Salcobrand</option>
+                        <option value="Cruz Verde">Cruz Verde</option>
+                        <option value="Farmacia local / Otra">Farmacia local / Otra</option>
+                    </select>
+                </div>
+            </div>
+            <div class="auth-field">
+                <label>Precio que pagaste (CLP)</label>
+                <div class="auth-input-wrap">
+                    <i data-lucide="tag" class="auth-input-icon"></i>
+                    <input type="number" id="reporte-precio" class="input-premium" placeholder="Ej: 450">
+                </div>
+            </div>
+            <div class="auth-field">
+                <label>Comuna (opcional)</label>
+                <div class="auth-input-wrap">
+                    <i data-lucide="map" class="auth-input-icon"></i>
+                    <select id="reporte-comuna" class="input-premium select-premium" style="width:100%;">
+                        <option value="">Selecciona tu comuna</option>
+                    </select>
+                </div>
+            </div>
+            <button class="auth-submit-btn" onclick="enviarReporte()">
+                <span>Enviar reporte</span>
+                <i data-lucide="send"></i>
             </button>
         </div>
     </div>
@@ -601,6 +806,20 @@
                         <small>Clásica de Google</small>
                     </button>
                 </div>
+            </div>
+
+            <!-- Modo adulto mayor -->
+            <div class="settings-group">
+                <div class="settings-label">
+                    <i data-lucide="accessibility" style="width:16px;height:16px;"></i>
+                    <span>Modo adulto mayor</span>
+                </div>
+                <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:10px;">Agranda el texto y aumenta el contraste para mejor lectura.</p>
+                <label class="settings-toggle">
+                    <input type="checkbox" id="settings-senior-toggle" onchange="toggleModoSenior(this.checked)">
+                    <span class="settings-toggle-slider"></span>
+                    <span class="settings-toggle-text" id="settings-senior-text">Desactivado</span>
+                </label>
             </div>
 
             <!-- Notificaciones -->
