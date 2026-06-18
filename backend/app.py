@@ -20,13 +20,24 @@ import urllib.request
 import urllib.parse
 from groq import Groq
 
-app = Flask(__name__)
-# CORS abierto para desarrollo local — acepta cualquier origen
+app = Flask(__name__, static_folder='.', static_url_path='')
+# CORS abierto — acepta cualquier origen
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-client = Groq(api_key="")
+# Servir el frontend (index.html en la raíz)
+@app.route('/')
+def servir_inicio():
+    return app.send_static_file('index.html')
 
-APP_SECRET = 'farmaconnect_dev_secret_2024'
+client = Groq(api_key=os.environ.get("GROQ_API_KEY", ""))
+
+APP_SECRET = os.environ.get('APP_SECRET', 'farmaconnect_dev_secret_2024')
+
+# Ruta de la base de datos.
+# En Render se usa un disco persistente montado en /var/data (no se borra al reiniciar).
+# En local, la base queda en la carpeta del proyecto.
+DB_DIR = os.environ.get('DB_DIR', '.')
+DB_PATH = os.path.join(DB_DIR, 'farmacia.db')
 
 # =========================================================
 # CONFIGURACIÓN DE SCRAPING
@@ -64,7 +75,7 @@ def resolver_token() -> dict | None:
         return None
     # Buscar usuario en la BD
     try:
-        conn = sqlite3.connect('farmacia.db')
+        conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         c.execute("SELECT id_usuario, nombre, correo, es_admin FROM usuarios WHERE id_usuario = ?", (int(uid_str),))
         row = c.fetchone()
@@ -88,7 +99,7 @@ def hash_password(password: str) -> str:
 # BASE DE DATOS
 # =========================================================
 def init_db():
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''CREATE TABLE IF NOT EXISTS farmacias (
                         id_farmacias INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -207,7 +218,7 @@ def registro():
     if '@' not in correo or '.' not in correo:
         return jsonify({"error": "Correo electrónico inválido."}), 400
 
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     try:
         cursor.execute("INSERT INTO usuarios (nombre, correo, contraseña) VALUES (?, ?, ?)",
@@ -235,7 +246,7 @@ def login():
     if not correo or not password:
         return jsonify({"error": "Correo y contraseña son obligatorios."}), 400
 
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT id_usuario, nombre, correo, es_admin FROM usuarios WHERE correo = ? AND contraseña = ?",
                    (correo, hash_password(password)))
@@ -275,7 +286,7 @@ def me():
 def admin_stats():
     if not resolver_admin():
         return jsonify({"error": "Acceso denegado. Se requieren permisos de administrador."}), 403
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM usuarios");      total_usuarios = c.fetchone()[0]
     c.execute("SELECT COUNT(*) FROM usuarios WHERE es_admin = 1"); total_admins = c.fetchone()[0]
@@ -299,7 +310,7 @@ def admin_listar_reportes():
     if not resolver_admin():
         return jsonify({"error": "Acceso denegado."}), 403
     filtro = request.args.get('estado', 'pendiente')
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     if filtro == 'todos':
         c.execute('''SELECT id_reporte, nombre_usuario, medicamento, farmacia, precio, comuna, estado, fecha_reporte
@@ -321,7 +332,7 @@ def admin_listar_reportes():
 def admin_aprobar_reporte(rid):
     if not resolver_admin():
         return jsonify({"error": "Acceso denegado."}), 403
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("UPDATE precios_comunidad SET estado = 'aprobado', motivo_rechazo = NULL WHERE id_reporte = ?", (rid,))
     conn.commit()
@@ -334,7 +345,7 @@ def admin_rechazar_reporte(rid):
     if not resolver_admin():
         return jsonify({"error": "Acceso denegado."}), 403
     motivo = (request.json.get('motivo') or 'No cumple con los criterios de calidad.').strip()
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("UPDATE precios_comunidad SET estado = 'rechazado', motivo_rechazo = ? WHERE id_reporte = ?", (motivo, rid))
     conn.commit()
@@ -346,7 +357,7 @@ def admin_rechazar_reporte(rid):
 def admin_listar_usuarios():
     if not resolver_admin():
         return jsonify({"error": "Acceso denegado."}), 403
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT id_usuario, nombre, correo, es_admin FROM usuarios ORDER BY id_usuario ASC")
     usuarios = [{"id": r[0], "nombre": r[1], "correo": r[2], "es_admin": bool(r[3])} for r in c.fetchall()]
@@ -370,12 +381,12 @@ def admin_editar_usuario(uid):
 
     # Evita que un admin se quite a sí mismo el último acceso de administrador
     if admin['id'] == uid and es_admin == 0:
-        conn = sqlite3.connect('farmacia.db'); c = conn.cursor()
+        conn = sqlite3.connect(DB_PATH); c = conn.cursor()
         c.execute("SELECT COUNT(*) FROM usuarios WHERE es_admin = 1"); n = c.fetchone()[0]; conn.close()
         if n <= 1:
             return jsonify({"error": "No puedes quitarte el rol de admin siendo el único administrador."}), 400
 
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     try:
         if password:
@@ -402,7 +413,7 @@ def admin_eliminar_usuario(uid):
         return jsonify({"error": "Acceso denegado."}), 403
     if admin['id'] == uid:
         return jsonify({"error": "No puedes eliminar tu propia cuenta."}), 400
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("DELETE FROM usuarios WHERE id_usuario=?", (uid,))
     conn.commit()
@@ -414,7 +425,7 @@ def admin_eliminar_usuario(uid):
 def admin_listar_historial():
     if not resolver_admin():
         return jsonify({"error": "Acceso denegado."}), 403
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''SELECT h.id_historial, m.nombre_buscado, f.nombre_farmacia, h.nombre_especifico,
                         h.precio, h.fecha_registro, COALESCE(u.nombre, 'Anónimo')
@@ -433,7 +444,7 @@ def admin_listar_historial():
 def admin_eliminar_historial(hid):
     if not resolver_admin():
         return jsonify({"error": "Acceso denegado."}), 403
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("DELETE FROM historial WHERE id_historial=?", (hid,))
     conn.commit()
@@ -445,7 +456,7 @@ def admin_eliminar_historial(hid):
 def admin_listar_medicamentos():
     if not resolver_admin():
         return jsonify({"error": "Acceso denegado."}), 403
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''SELECT m.id_medicamento, m.nombre_buscado, COUNT(h.id_historial)
                  FROM medicamentos m
@@ -460,7 +471,7 @@ def admin_listar_medicamentos():
 def admin_eliminar_medicamento(mid):
     if not resolver_admin():
         return jsonify({"error": "Acceso denegado."}), 403
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("DELETE FROM historial WHERE id_medicamento=?", (mid,))   # borra su historial asociado
     c.execute("DELETE FROM medicamentos WHERE id_medicamento=?", (mid,))
@@ -604,7 +615,7 @@ def extraer_receta():
 # =========================================================
 
 def guardar_busqueda(remedio, resultados, user_id=None):
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("INSERT OR IGNORE INTO medicamentos (nombre_buscado) VALUES (?)", (remedio.lower().strip(),))
     cursor.execute("SELECT id_medicamento FROM medicamentos WHERE nombre_buscado = ?", (remedio.lower().strip(),))
@@ -663,6 +674,9 @@ def get_driver():
     opts.add_argument("--disable-translate")
     opts.add_argument("--mute-audio")
     opts.add_argument("--no-first-run")
+    # Flags que estabilizan Chrome en servidores con poca memoria/CPU (Render)
+    opts.add_argument("--disable-software-rasterizer")
+    opts.add_argument("--disable-features=site-per-process,TranslateUI")
     opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     # Bloquear imágenes, fuentes y CSS para cargar mucho más rápido
     prefs = {
@@ -677,12 +691,31 @@ def get_driver():
     # 'eager' = no esperar a que cargue TODO (imágenes, subrecursos), solo el DOM
     opts.page_load_strategy = 'eager'
 
-    # Cachear el path del chromedriver (instalar solo la primera vez)
-    if _DRIVER_PATH is None:
-        _DRIVER_PATH = ChromeDriverManager().install()
-    service = Service(_DRIVER_PATH, log_output=os.devnull)
-    driver = webdriver.Chrome(service=service, options=opts)
-    driver.set_page_load_timeout(15)
+    # En producción (Docker/Render) se usa el Chrome del sistema.
+    # En local se usa webdriver-manager para descargar el driver.
+    if os.environ.get("RENDER") or os.path.exists("/usr/bin/google-chrome"):
+        opts.binary_location = "/usr/bin/google-chrome"
+        # Usar el chromedriver instalado en el Dockerfile (ruta fija, sin búsquedas por red)
+        if os.path.exists("/usr/local/bin/chromedriver"):
+            service = Service("/usr/local/bin/chromedriver", log_output=os.devnull)
+            driver = webdriver.Chrome(service=service, options=opts)
+        else:
+            driver = webdriver.Chrome(options=opts)
+    else:
+        if _DRIVER_PATH is None:
+            _DRIVER_PATH = ChromeDriverManager().install()
+        service = Service(_DRIVER_PATH, log_output=os.devnull)
+        driver = webdriver.Chrome(service=service, options=opts)
+    # En Render (servidor lento) Chrome necesita más tiempo para responder.
+    # En local, 15s es suficiente.
+    if os.environ.get("RENDER"):
+        driver.set_page_load_timeout(35)
+        try:
+            driver.set_script_timeout(35)
+        except Exception:
+            pass
+    else:
+        driver.set_page_load_timeout(15)
     try:
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
             "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
@@ -697,21 +730,25 @@ def scrape_task(func, remedio, res_list):
        Reintenta solo si NO obtuvo resultados (fallo de carga o anti-bot)."""
     nombre_farmacia = func.__name__.replace("logic_", "").capitalize()
     antes = len(res_list)
-    for intento in (1, 2):
+    print(f"--> Iniciando {nombre_farmacia}...", flush=True)
+    # En Render NO se reintenta (el reintento duplica el tiempo). Un solo intento.
+    intentos = (1,) if os.environ.get("RENDER") else (1, 2)
+    for intento in intentos:
         driver = None
         try:
             driver = get_driver()
             func(remedio, driver, res_list)
         except Exception as e:
-            print(f"[{nombre_farmacia}] intento {intento} falló: {str(e)[:120]}")
+            print(f"[{nombre_farmacia}] intento {intento} falló: {str(e)[:200]}", flush=True)
         finally:
             if driver:
                 try: driver.quit()
                 except Exception: pass
         if len(res_list) > antes:
+            print(f"<-- {nombre_farmacia} OK ({len(res_list)-antes} resultados)", flush=True)
             break  # ya hay resultado, no reintentar
-        elif intento == 1:
-            print(f"[{nombre_farmacia}] sin resultados, reintentando...")
+        elif intento == 1 and len(intentos) > 1:
+            print(f"[{nombre_farmacia}] sin resultados, reintentando...", flush=True)
 
 
 def _cargar(driver, url):
@@ -1303,16 +1340,25 @@ def scraping_manual():
         return jsonify({"error": "Falta el parámetro"}), 400
 
     res = []
-    threads = [
-        threading.Thread(target=scrape_task, args=(logic_ahumada, remedio, res)),
-        threading.Thread(target=scrape_task, args=(logic_drsimi, remedio, res)),
-        threading.Thread(target=scrape_task, args=(logic_salcobrand, remedio, res)),
-        # Cruz Verde usa HTTP directo (no Selenium) — no necesita scrape_task con Chrome
-        threading.Thread(target=logic_cruzverde, args=(remedio, res))
-    ]
-    for t in threads: t.start()
-    # Timeout global: si una farmacia se cuelga, no esperar más de 35s en total
-    for t in threads: t.join(timeout=35)
+    # Cruz Verde es HTTP (ligero, no usa Chrome), siempre va en paralelo en su hilo
+    hilo_cv = threading.Thread(target=logic_cruzverde, args=(remedio, res))
+    hilo_cv.start()
+
+    tareas_selenium = [logic_ahumada, logic_drsimi, logic_salcobrand]
+
+    if os.environ.get("RENDER"):
+        # En Render (512MB) abrir 2-3 Chrome a la vez agota la memoria y el
+        # servidor SE REINICIA a mitad de la búsqueda (se pierde todo). Por eso
+        # se ejecutan de UNA EN UNA: es más lento, pero el servidor NO se cae.
+        for func in tareas_selenium:
+            scrape_task(func, remedio, res)
+    else:
+        # En local hay CPU/RAM de sobra: las 3 en paralelo (rápido)
+        hilos = [threading.Thread(target=scrape_task, args=(f, remedio, res)) for f in tareas_selenium]
+        for t in hilos: t.start()
+        for t in hilos: t.join(timeout=45)
+
+    hilo_cv.join(timeout=20)
 
     # Filtro de relevancia: descartar resultados que claramente no corresponden a la búsqueda
     res_filtrado = _filtrar_relevantes(res, remedio)
@@ -1351,7 +1397,7 @@ def _registrar_ahorro(user_id, remedio, resultados):
     if ahorro <= 0:
         return
     try:
-        conn = sqlite3.connect('farmacia.db')
+        conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         c.execute('''INSERT INTO ahorros (id_usuario, medicamento, precio_caro, precio_barato, ahorro)
                      VALUES (?, ?, ?, ?, ?)''', (user_id, remedio.lower(), caro, barato, ahorro))
@@ -1381,7 +1427,7 @@ def registrar_ahorro_receta():
         return jsonify({"mensaje": "Sin ahorro que registrar."})
 
     try:
-        conn = sqlite3.connect('farmacia.db')
+        conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         c.execute('''INSERT INTO ahorros (id_usuario, medicamento, precio_caro, precio_barato, ahorro)
                      VALUES (?, ?, ?, ?, ?)''', (usuario['id'], medicamento.lower(), caro, barato, ahorro))
@@ -1425,7 +1471,7 @@ def _filtrar_relevantes(resultados, remedio):
 
 @app.route('/obtener_medicamentos')
 def obtener_medicamentos():
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT nombre_buscado FROM medicamentos ORDER BY nombre_buscado ASC")
     data = [row[0] for row in c.fetchall()]
@@ -1436,7 +1482,7 @@ def obtener_medicamentos():
 @app.route('/obtener_historial')
 def obtener_historial():
     med = request.args.get('medicamento', '')
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     if med:
         c.execute('''SELECT m.nombre_buscado, f.nombre_farmacia, h.nombre_especifico, h.precio, h.fecha_registro
@@ -1460,7 +1506,7 @@ def obtener_historial():
 @app.route('/medicamentos_populares', methods=['GET'])
 def medicamentos_populares():
     """Devuelve los medicamentos más buscados con el precio más bajo registrado por farmacia."""
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     # Top 10 medicamentos más buscados (por cantidad de registros en historial)
     c.execute('''
@@ -1533,7 +1579,7 @@ def reportar_precio():
     if len(medicamento) < 3 or len(medicamento) > 80:
         return jsonify({"error": "El nombre del medicamento no es válido."}), 400
 
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''INSERT INTO precios_comunidad (id_usuario, nombre_usuario, medicamento, farmacia, precio, comuna, estado)
                  VALUES (?, ?, ?, ?, ?, ?, 'pendiente')''',
@@ -1547,7 +1593,7 @@ def reportar_precio():
 def listar_precios_comunidad():
     """Lista solo los precios APROBADOS por la comunidad para un medicamento."""
     medicamento = (request.args.get('medicamento') or '').strip().lower()
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     if medicamento:
         c.execute('''SELECT id_reporte, nombre_usuario, medicamento, farmacia, precio, comuna, votos, fecha_reporte
@@ -1572,7 +1618,7 @@ def mis_reportes():
     usuario = resolver_token()
     if not usuario:
         return jsonify({"error": "Sesión requerida."}), 401
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''SELECT id_reporte, medicamento, farmacia, precio, comuna, estado, motivo_rechazo, fecha_reporte
                  FROM precios_comunidad WHERE id_usuario = ? ORDER BY fecha_reporte DESC LIMIT 30''', (usuario['id'],))
@@ -1591,7 +1637,7 @@ def votar_precio(rid):
     usuario = resolver_token()
     if not usuario:
         return jsonify({"error": "Sesión requerida."}), 401
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("UPDATE precios_comunidad SET votos = votos + 1 WHERE id_reporte = ?", (rid,))
     conn.commit()
@@ -1620,7 +1666,7 @@ def perfil_stats():
     usuario = resolver_token()
     if not usuario:
         return jsonify({"error": "Sesión requerida."}), 401
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
     # Ahorro total acumulado
@@ -1752,7 +1798,7 @@ def crear_alerta():
     except (ValueError, TypeError):
         return jsonify({"error": "El precio umbral debe ser un número entero."}), 400
 
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     # Verificar que no tenga ya una alerta para ese medicamento
     c.execute("SELECT id_alerta FROM alertas_precio WHERE id_usuario = ? AND medicamento = ? AND activa = 1",
@@ -1774,7 +1820,7 @@ def listar_alertas():
     usuario = resolver_token()
     if not usuario:
         return jsonify({"error": "Sesión requerida."}), 401
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT id_alerta, medicamento, umbral_precio, fecha_creacion FROM alertas_precio WHERE id_usuario = ? AND activa = 1 ORDER BY fecha_creacion DESC",
               (usuario['id'],))
@@ -1790,7 +1836,7 @@ def eliminar_alerta(aid):
     usuario = resolver_token()
     if not usuario:
         return jsonify({"error": "Sesión requerida."}), 401
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("DELETE FROM alertas_precio WHERE id_alerta = ? AND id_usuario = ?", (aid, usuario['id']))
     conn.commit()
@@ -1804,7 +1850,7 @@ def verificar_alertas():
     usuario = resolver_token()
     if not usuario:
         return jsonify({"error": "Sesión requerida."}), 401
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT id_alerta, medicamento, umbral_precio FROM alertas_precio WHERE id_usuario = ? AND activa = 1",
               (usuario['id'],))
@@ -1841,7 +1887,7 @@ def chat_historial():
     usuario = resolver_token()
     if not usuario:
         return jsonify([])
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''SELECT rol, mensaje, fecha FROM chat_historial
                  WHERE id_usuario = ? ORDER BY id_chat ASC LIMIT 100''',
@@ -1856,7 +1902,7 @@ def chat_limpiar():
     usuario = resolver_token()
     if not usuario:
         return jsonify({"error": "No autenticado."}), 401
-    conn = sqlite3.connect('farmacia.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("DELETE FROM chat_historial WHERE id_usuario = ?", (usuario['id'],))
     conn.commit()
@@ -1869,7 +1915,7 @@ def _guardar_chat(user_id, rol, mensaje):
     if not user_id or not mensaje:
         return
     try:
-        conn = sqlite3.connect('farmacia.db')
+        conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         c.execute("INSERT INTO chat_historial (id_usuario, rol, mensaje) VALUES (?, ?, ?)",
                   (user_id, rol, mensaje[:5000]))  # limita a 5000 chars
@@ -1900,7 +1946,7 @@ def consultar_asistente():
 
     contexto_precios = ""
     try:
-        conn = sqlite3.connect('farmacia.db')
+        conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         c.execute("SELECT id_medicamento, nombre_buscado FROM medicamentos")
         todos_meds = c.fetchall()
@@ -1988,4 +2034,5 @@ def consultar_asistente():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=8000)
+    port = int(os.environ.get('PORT', 8000))
+    app.run(host='0.0.0.0', port=port, debug=False)
