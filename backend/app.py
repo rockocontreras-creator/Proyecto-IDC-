@@ -677,6 +677,18 @@ def get_driver():
     # Flags que estabilizan Chrome en servidores con poca memoria/CPU (Render)
     opts.add_argument("--disable-software-rasterizer")
     opts.add_argument("--disable-features=site-per-process,TranslateUI")
+    # Flags AGRESIVOS para reducir memoria RAM, SOLO en plan gratuito (512MB).
+    # En plan pagado (2GB) no se usan, porque --single-process da problemas con
+    # varios Chrome en paralelo y ya no hace falta ahorrar tanta memoria.
+    if os.environ.get("RENDER") and not os.environ.get("PLAN_PAGADO"):
+        opts.add_argument("--single-process")          # un solo proceso = mucha menos RAM
+        opts.add_argument("--disable-dev-tools")
+        opts.add_argument("--disable-application-cache")
+        opts.add_argument("--disable-background-timer-throttling")
+        opts.add_argument("--disable-renderer-backgrounding")
+        opts.add_argument("--disable-backgrounding-occluded-windows")
+        opts.add_argument("--js-flags=--max-old-space-size=128")  # limita memoria de JS
+        opts.add_argument("--window-size=800,600")     # ventana más chica = menos RAM
     opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     # Bloquear imágenes, fuentes y CSS para cargar mucho más rápido
     prefs = {
@@ -723,6 +735,38 @@ def get_driver():
     except Exception:
         pass
     return driver
+
+
+def scrape_secuencial_un_driver(tareas, remedio, res_list):
+    """OPTIMIZACIÓN para Render: usa UN SOLO Chrome para todas las farmacias,
+       en vez de abrir y cerrar uno por cada una (lo más costoso en CPU/tiempo).
+       Abre Chrome una vez, navega por las 3 farmacias, y lo cierra al final."""
+    driver = None
+    try:
+        driver = get_driver()
+        for func in tareas:
+            nombre = func.__name__.replace("logic_", "").capitalize()
+            antes = len(res_list)
+            print(f"--> Iniciando {nombre}...", flush=True)
+            try:
+                func(remedio, driver, res_list)
+            except Exception as e:
+                print(f"[{nombre}] falló: {str(e)[:200]}", flush=True)
+            if len(res_list) > antes:
+                print(f"<-- {nombre} OK ({len(res_list)-antes} resultados)", flush=True)
+            else:
+                print(f"<-- {nombre} sin resultados", flush=True)
+            # Liberar memoria entre farmacias: vaciar la página actual
+            try:
+                driver.get("about:blank")
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"Error creando driver: {str(e)[:200]}", flush=True)
+    finally:
+        if driver:
+            try: driver.quit()
+            except Exception: pass
 
 
 def scrape_task(func, remedio, res_list):
@@ -1346,14 +1390,13 @@ def scraping_manual():
 
     tareas_selenium = [logic_ahumada, logic_drsimi, logic_salcobrand]
 
-    if os.environ.get("RENDER"):
-        # En Render (512MB) abrir 2-3 Chrome a la vez agota la memoria y el
-        # servidor SE REINICIA a mitad de la búsqueda (se pierde todo). Por eso
-        # se ejecutan de UNA EN UNA: es más lento, pero el servidor NO se cae.
-        for func in tareas_selenium:
-            scrape_task(func, remedio, res)
+    # PLAN_PAGADO=true (plan Starter de Render con 2GB) -> las 3 farmacias EN PARALELO (rápido).
+    # Sin esa variable (plan Free 512MB) -> secuencial con un solo Chrome (estable pero lento).
+    if os.environ.get("RENDER") and not os.environ.get("PLAN_PAGADO"):
+        # Plan gratuito: un solo Chrome, secuencial (no agota los 512MB)
+        scrape_secuencial_un_driver(tareas_selenium, remedio, res)
     else:
-        # En local hay CPU/RAM de sobra: las 3 en paralelo (rápido)
+        # Plan pagado o local: las 3 en paralelo (hay RAM de sobra) = mucho más rápido
         hilos = [threading.Thread(target=scrape_task, args=(f, remedio, res)) for f in tareas_selenium]
         for t in hilos: t.start()
         for t in hilos: t.join(timeout=45)
@@ -1621,7 +1664,7 @@ def mis_reportes():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''SELECT id_reporte, medicamento, farmacia, precio, comuna, estado, motivo_rechazo, fecha_reporte
-                 FROM precios_comunidad WHERE id_usuario = ? ORDER BY fecha_reporte DESC LIMIT 30''', (usuario['id'],))
+                 FROM precios_comunidad WHERE id_usuario = ? ORDER BY fecha_reporte DESC LIMIT 5''', (usuario['id'],))
     reportes = []
     for row in c.fetchall():
         reportes.append({
